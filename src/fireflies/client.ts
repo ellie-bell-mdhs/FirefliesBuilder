@@ -17,6 +17,21 @@ export interface Transcript {
   sentences: Sentence[];
 }
 
+/**
+ * Recording media for a transcript. `video_url`/`audio_url` are signed, downloadable
+ * GCS URLs that only exist AFTER the meeting ends and Fireflies finishes processing
+ * (and require a Pro+ plan with "RECORD MEETING VIDEO" enabled). They expire (~24h),
+ * so re-query to mint a fresh one.
+ */
+export interface Recording {
+  id: string;
+  title: string | null;
+  duration: number | null;
+  is_live: boolean;
+  video_url: string | null;
+  audio_url: string | null;
+}
+
 export interface TranscriptSummary {
   id: string;
   title: string | null;
@@ -113,6 +128,36 @@ export class FirefliesClient {
   }
 
   /**
+   * Fetch just the recording media for a transcript. Used post-meeting to poll until
+   * the video has finished processing (video_url becomes non-null). Kept separate from
+   * getTranscript so we don't pull all sentences on every poll. `is_live` is read
+   * defensively (not always in the schema) and normalized to false when absent.
+   */
+  async getRecording(id: string): Promise<Recording> {
+    const data = await this.gql<{ transcript: RawRecording }>(
+      `query ($id: String!) {
+        transcript(id: $id) {
+          id
+          title
+          duration
+          video_url
+          audio_url
+        }
+      }`,
+      { id },
+    );
+    const t = data.transcript;
+    return {
+      id: t.id,
+      title: t.title ?? null,
+      duration: t.duration ?? null,
+      is_live: Boolean((t as { is_live?: boolean }).is_live),
+      video_url: t.video_url ?? null,
+      audio_url: t.audio_url ?? null,
+    };
+  }
+
+  /**
    * Meetings Fireflies is currently recording (in-progress or paused). This is
    * the trigger for the whole bot: when a meeting appears here, Fireflies has
    * joined and a live transcript is available.
@@ -139,6 +184,14 @@ interface RawTranscript {
   date?: number | null;
   duration?: number | null;
   sentences?: Array<Partial<Sentence>> | null;
+}
+
+interface RawRecording {
+  id: string;
+  title?: string | null;
+  duration?: number | null;
+  video_url?: string | null;
+  audio_url?: string | null;
 }
 
 interface RawActiveMeeting {

@@ -29,6 +29,7 @@ async function loadTranscript(): Promise<{ title: string; sentences: Sentence[] 
     const raw = JSON.parse(fs.readFileSync(fixture, "utf8")) as Array<{
       text: string;
       speaker_name?: string;
+      start_time?: number;
     }>;
     return {
       title: fixture.replace(/\.json$/, ""),
@@ -36,7 +37,7 @@ async function loadTranscript(): Promise<{ title: string; sentences: Sentence[] 
         index: i,
         text: s.text,
         speaker_name: s.speaker_name ?? null,
-        start_time: null,
+        start_time: s.start_time ?? null,
       })),
     };
   }

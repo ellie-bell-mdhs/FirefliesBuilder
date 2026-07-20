@@ -10,9 +10,13 @@ const log = makeLogger("app");
 let orchestrator: Orchestrator | null = null;
 let tray: TrayController | null = null;
 
+// Debug: force the menu bar to stay visible even with no live meeting, so the tray
+// UI can be tested on demand (BUILDBOT_FORCE_TRAY=1).
+const FORCE_TRAY = Boolean(process.env.BUILDBOT_FORCE_TRAY);
+
 /** Show the menu bar only while a meeting is near or a build is running. */
 function syncTray(pendingSoon: boolean, activeCount: number): void {
-  const shouldShow = pendingSoon || activeCount > 0;
+  const shouldShow = FORCE_TRAY || pendingSoon || activeCount > 0;
   if (shouldShow && !tray) {
     tray = createTray();
     log.info("menu bar shown (meeting near / building)");

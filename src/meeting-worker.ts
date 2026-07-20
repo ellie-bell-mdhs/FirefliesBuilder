@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { config, projectRoot } from "./config.js";
-import { makeLogger } from "./logger.js";
+import { makeLogger, type Logger } from "./logger.js";
 import { launchClaudeInGhostty } from "./ghostty.js";
 import { initBus } from "./mesh/bus.js";
+import { fmtClock } from "./vision/visuals.js";
 import type { Sentence } from "./fireflies/client.js";
 
 /** A point-in-time view of a meeting's transcript. */
@@ -49,8 +51,33 @@ function workspaceFor(title: string): string {
 
 function renderSentences(sentences: Sentence[]): string {
   return sentences
-    .map((s) => `${s.speaker_name ? s.speaker_name + ": " : ""}${s.text}`)
+    .map((s) => {
+      const ts = s.start_time != null ? `[${fmtClock(s.start_time)}] ` : "";
+      const who = s.speaker_name ? s.speaker_name + ": " : "";
+      return `${ts}${who}${s.text}`;
+    })
     .join("\n");
+}
+
+/**
+ * Spawn the detached post-meeting visual-capture process. It waits for the Fireflies
+ * recording, extracts the exact frame for each moment the agents flagged, and messages
+ * the orchestrator. Detached so it never blocks the watcher; failures are non-fatal.
+ */
+function spawnVisualCapture(meeting: string, transcriptId: string, log: Logger): void {
+  if (!config.vision.captureEnabled) return;
+  const script = path.join(projectRoot, "dist", "vision", "capture.js");
+  try {
+    const child = spawn(process.execPath, [script, "--meeting", meeting, "--id", transcriptId], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.on("error", (e) => log.error("failed to launch visual capture:", e));
+    child.unref();
+    log.info("post-meeting visual capture spawned (detached)");
+  } catch (e) {
+    log.error("visual capture spawn error:", e);
+  }
 }
 
 /**
@@ -99,14 +126,30 @@ going — to know where everything stands and to integrate the pieces.
 
 ## How to run the meeting
 
-1. Read \`TRANSCRIPT.md\` to understand what's being asked. Re-read it every so often for
-   new content (a watcher updates it ~every 40s) and to notice when the meeting ends.
+1. Read \`TRANSCRIPT.md\` to understand what's being asked. Every line is prefixed with its
+   timestamp, e.g. \`[04:12] Erik: ...\`. Re-read it every so often for new content (a
+   watcher updates it ~every 40s) and to notice when the meeting ends.
 2. Decompose the work into cohesive parts and spin up a worker per part with a clear
    role. Reuse existing workers for follow-on work rather than always spawning new ones.
 3. Delegate concrete tasks. Let workers coordinate directly with each other when their
    pieces interconnect (they have the same \`mesh\` CLI).
 4. Integrate: pull results together, keep a top-level \`SPEC.md\` describing the whole
    thing and how the parts fit, and resolve conflicts between workers.
+
+## Capturing what people show (screenshots)
+
+The meeting is being video-recorded. Whenever someone refers to something **visual** that
+you can't get from words alone — "make it look like *this*", "see this screen", "match that
+design", a shared mockup, etc. — flag the moment so its picture can be captured:
+
+    ./mesh shot --at <seconds> --note "<what you expect to see>"
+
+Use the \`[MM:SS]\` timestamp of the line where it was said, converted to **seconds**
+(e.g. \`[04:12]\` → \`--at 252\`). This does two things: grabs a best-effort screenshot of my
+Mac screen right now, and queues that timestamp. **After the meeting**, the exact frame is
+extracted from the recording and you'll get a \`msg\` from \`vision\` plus a \`VISUALS.md\`
+index — Read those images (they're in \`media/\`) and reconcile whatever you built against
+what was actually shown. Flag generously; unused shots are cheap.
 
 ## Be fully autonomous — never stop to ask me
 
@@ -151,9 +194,12 @@ const KICKOFF_PROMPT =
   "don't build yourself. Use the ./mesh CLI to spawn persistent worker agents and hand " +
   "them the parts of the work, then integrate their results. Run FULLY AUTONOMOUSLY: " +
   "never ask me questions, decide every call yourself, and log uncertain ones to " +
-  "DECISIONS.md. Read TRANSCRIPT.md for the meeting so far, then start decomposing and " +
-  "delegating. Re-read TRANSCRIPT.md periodically for new content and to notice when the " +
-  "meeting ends (which only means: write SUMMARY.md, then keep coordinating).";
+  "DECISIONS.md. Read TRANSCRIPT.md (lines are timestamped [MM:SS]) for the meeting so " +
+  "far, then start decomposing and delegating. When someone references something visual " +
+  "('make it look like this', a shared screen/design), flag it with " +
+  "`./mesh shot --at <seconds> --note ...` so its picture is captured. Re-read " +
+  "TRANSCRIPT.md periodically for new content and to notice when the meeting ends (which " +
+  "only means: write SUMMARY.md, then keep coordinating).";
 
 /**
  * Drive one meeting: set up its workspace, open a Ghostty window running an
@@ -199,6 +245,9 @@ export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
       // SUMMARY.md) and stop polling — but never tell the session to stop. It keeps
       // running autonomously; the only effect of the meeting ending is that summary.
       writeTranscript(workspace, snapshot);
+      // Kick off post-meeting visual capture: extract the exact video frames for any
+      // moments flagged with `./mesh shot --at`. Runs detached in the background.
+      spawnVisualCapture(workspace, opts.meetingId, log);
       log.info(`meeting over — wrote ENDED marker (summary cue); watcher stopping, Claude session left running in ${workspace}`);
       return workspace;
     }

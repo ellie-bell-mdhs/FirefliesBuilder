@@ -32,4 +32,18 @@ export const config = {
   // Where per-meeting folders are created. Each meeting gets its own
   // <buildsDir>/<date>-<slug>/ that the Ghostty/Claude session works inside.
   buildsDir: optional("BUILDS_DIR", "/Users/ebell/Projects"),
+
+  vision: {
+    // Master switch for the post-meeting video frame extraction step.
+    captureEnabled: optional("CAPTURE_ENABLED", "true") !== "false",
+    // Whether `./mesh shot` also grabs a live macOS screenshot (needs Screen
+    // Recording permission). Set to false to only queue the timestamp.
+    liveScreenshot: optional("LIVE_SCREENSHOT", "true") !== "false",
+    // How long to wait for Fireflies to finish processing the video after a
+    // meeting ends before giving up, and how often to poll for it.
+    videoWaitMaxMs: Number(optional("VIDEO_WAIT_MAX_SECONDS", "900")) * 1000,
+    videoPollMs: Number(optional("VIDEO_POLL_SECONDS", "45")) * 1000,
+    // Optional explicit ffmpeg path; otherwise resolved from common locations/PATH.
+    ffmpegPath: process.env.FFMPEG_PATH || null,
+  },
 } as const;

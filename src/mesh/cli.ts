@@ -10,11 +10,13 @@
  *   mesh send --from api --to orchestrator --type result --msg "done: /health returns 200"
  *   mesh post --from api --msg "health endpoint live"
  *   mesh board | mesh agents | mesh inbox [--as orchestrator] [--peek]
+ *   mesh shot --at 252 --note "the target design Erik pointed at"
  *   mesh stop --name api | mesh stop --all
  */
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { config } from "../config.js";
 import {
   ORCHESTRATOR,
   initBus,
@@ -29,6 +31,8 @@ import {
   type MeshMessage,
   type MessageType,
 } from "./bus.js";
+import { captureScreen } from "../vision/screen.js";
+import { appendVisual, ensureMediaDir, fmtClock, newFlagId, slug } from "../vision/visuals.js";
 
 function arg(name: string, fallback = ""): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -125,6 +129,34 @@ function main(): void {
       }
       return;
     }
+    case "shot": {
+      const note = arg("note", "visual moment");
+      const atRaw = arg("at");
+      const atNum = atRaw ? Number(atRaw) : NaN;
+      const at = Number.isFinite(atNum) ? atNum : null;
+
+      let livePath: string | null = null;
+      if (config.vision.liveScreenshot) {
+        const media = ensureMediaDir(meeting);
+        const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, "");
+        const dest = path.join(media, `live-${stamp}-${slug(note)}.png`);
+        if (captureScreen(dest)) livePath = dest;
+      }
+      appendVisual(meeting, {
+        id: newFlagId(),
+        wallClock: new Date().toISOString(),
+        at,
+        note,
+        livePath,
+      });
+      const label = at != null ? `@${fmtClock(at)} ` : "";
+      postBoard(meeting, arg("from", ORCHESTRATOR), `flagged visual moment ${label}— ${note}`);
+      console.log(
+        `flagged visual moment ${label}${livePath ? "(live screenshot saved)" : "(no live screenshot)"}` +
+          `${at != null ? " — will extract the exact frame after the meeting" : ""}`,
+      );
+      return;
+    }
     case "stop": {
       const targets = flag("all")
         ? listAgents(meeting).filter((a) => a.name !== ORCHESTRATOR && a.status !== "stopped")
@@ -138,11 +170,12 @@ function main(): void {
     }
     default:
       console.log(
-        "usage: mesh <spawn|send|post|board|inbox|agents|stop> ...\n" +
+        "usage: mesh <spawn|send|post|board|inbox|agents|shot|stop> ...\n" +
           "  spawn --name <n> --role <r>\n" +
           "  send --to <n> [--from <n>] [--type task|msg|result|question] --msg <text>\n" +
           "  post [--from <n>] --msg <text>\n" +
           "  inbox [--as <n>] [--peek]   board   agents\n" +
+          "  shot --at <seconds> --note <text>   (flag a visual moment + live screenshot)\n" +
           "  stop --name <n> | --all",
       );
   }

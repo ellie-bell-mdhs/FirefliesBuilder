@@ -68,6 +68,41 @@ message (so it keeps its memory) and idle-polls its inbox — it doesn't vanish 
 job. Messages are JSON lines in `.mesh/bus/<agent>.inbox.jsonl`; status goes to a shared
 `BOARD.md`; each worker builds in `workspaces/<name>/`.
 
+## Visual capture (screenshots)
+
+Text isn't always enough — when someone says "make it look exactly like *this*," the agent
+needs to *see* it. Two things make that work:
+
+- **Timestamped transcript.** Every `TRANSCRIPT.md` line is prefixed with its time, e.g.
+  `[04:12] Erik: make it look like this`.
+- **Flagging moments.** When the orchestrator hits a visual reference, it flags the moment:
+  `./mesh shot --at 252 --note "the target design"`. That (a) grabs a best-effort screenshot
+  of your Mac screen right then, and (b) queues the timestamp.
+
+**Fireflies video only exists after the meeting processes**, so the accurate capture is
+deferred: when the meeting ends, a background step waits for the recording, downloads it, and
+uses `ffmpeg` to extract the **exact frame** at each flagged timestamp into `media/`. It then
+writes a `VISUALS.md` index and messages the orchestrator, which reads the images (Claude's
+Read tool handles PNGs) and reconciles the build against what was actually shown.
+
+```
+LIVE:  [04:12] "...like this"  ->  ./mesh shot --at 252 --note "target design"
+                                   ├─ screencapture -> media/live-*.png   (immediate, your screen)
+                                   └─ queue t=252s in .mesh/visuals.jsonl
+END:   wait for Fireflies video -> download -> ffmpeg frame @252s
+       -> media/frame-0412-target-design.png + VISUALS.md -> msg to orchestrator
+```
+
+**Prerequisites** (feature degrades gracefully without them — you just get fewer/no images):
+- **`ffmpeg`** on PATH — `brew install ffmpeg`. Without it, frame extraction is skipped.
+- **Fireflies Pro+** with **RECORD MEETING VIDEO** enabled — otherwise `video_url` is null and
+  only the live Mac screenshots are produced.
+- macOS **Screen Recording** permission for the terminal (Ghostty) that runs `screencapture`,
+  or the live shot silently produces nothing.
+
+Caveats: the live Mac screenshot lags the spoken words by up to one transcript poll (~40s) and
+only sees *your* display; the post-meeting Fireflies frame is the exact, authoritative one.
+
 ## Setup
 
 ### 1. Install
