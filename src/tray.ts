@@ -1,4 +1,4 @@
-import { Tray, Menu, nativeImage, shell } from "electron";
+import { Tray, Menu, nativeImage, shell, type MenuItemConstructorOptions } from "electron";
 import { botState } from "./state.js";
 import { config } from "./config.js";
 
@@ -7,53 +7,63 @@ export interface TrayController {
   destroy(): void;
 }
 
+export interface TrayOptions {
+  /** Press "Start on current meeting". */
+  onStart: () => void;
+  /** Cancel the bounded watch. */
+  onStopLooking: () => void;
+  /** Current status for rendering the menu. */
+  getStatus: () => { watching: boolean; active: string[] };
+}
+
 /**
- * The menu-bar item. Uses an empty image + a text/emoji title so no icon asset
- * is required. Re-renders on a timer so the active-meeting count and toggle state
- * stay current.
+ * The always-present menu-bar item. Uses an empty image + an emoji title so no icon
+ * asset is needed. It's the only control surface: nothing happens until you press
+ * "Start on current meeting". Re-renders on a timer so status stays current.
  */
-export function createTray(): TrayController {
+export function createTray(opts: TrayOptions): TrayController {
   const tray = new Tray(nativeImage.createEmpty());
 
   function render(): void {
-    const on = botState.listeningEnabled;
-    const active = botState.activeIds();
+    const { watching, active } = opts.getStatus();
+    const building = active.length > 0;
 
-    tray.setTitle(on ? "🎙️" : "⏸️");
-    tray.setToolTip(
-      `Meeting build-bot — ${on ? "listening" : "paused"}` +
-        (active.length ? `, ${active.length} active` : ""),
-    );
+    tray.setTitle(building ? "🛠️" : watching ? "👀" : "🎙️");
+    const status = building
+      ? `Building ${active.length} meeting(s)`
+      : watching
+        ? "Watching for Fireflies to join…"
+        : "Idle";
+    tray.setToolTip(`Meeting build-bot — ${status}`);
 
-    const menu = Menu.buildFromTemplate([
-      { label: on ? "Status: listening" : "Status: paused", enabled: false },
-      {
-        label: active.length ? `Building ${active.length} meeting(s)` : "No active meeting",
-        enabled: false,
-      },
+    const items: MenuItemConstructorOptions[] = [
+      { label: `Status: ${status}`, enabled: false },
       { type: "separator" },
       {
-        label: "Listening enabled",
-        type: "checkbox",
-        checked: on,
-        click: () => {
-          botState.listeningEnabled = !botState.listeningEnabled;
-          render();
-        },
+        label: watching ? "Looking for a meeting…" : "Start on current meeting",
+        enabled: !watching,
+        click: () => opts.onStart(),
       },
-      {
-        label: "Skip current meeting(s)",
-        enabled: active.length > 0,
+    ];
+    if (watching) {
+      items.push({ label: "Stop looking", click: () => opts.onStopLooking() });
+    }
+    if (building) {
+      items.push({
+        label: "Skip / stop current meeting(s)",
         click: () => {
           for (const id of active) botState.skip(id);
           render();
         },
-      },
+      });
+    }
+    items.push(
       { label: "Open output folder", click: () => void shell.openPath(config.buildsDir) },
       { type: "separator" },
       { label: "Quit", role: "quit" },
-    ]);
-    tray.setContextMenu(menu);
+    );
+
+    tray.setContextMenu(Menu.buildFromTemplate(items));
   }
 
   render();

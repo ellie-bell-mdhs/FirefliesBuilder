@@ -6,12 +6,13 @@ import { runMeetingWorker, type TranscriptSource } from "./meeting-worker.js";
 
 const log = makeLogger("orchestrator");
 
-export interface OrchestratorState {
-  /** A meeting is currently live in Fireflies (so the menu bar should show). */
-  pendingSoon: boolean;
-  /** Number of build workers currently running. */
-  activeCount: number;
-}
+/** Things the orchestrator tells the host (menu bar) about, for notifications/UI. */
+export type OrchEvent =
+  | { type: "started"; meetings: { id: string; title: string }[] }
+  | { type: "already"; count: number }
+  | { type: "watching" }
+  | { type: "timeout" }
+  | { type: "error"; message: string };
 
 /** Transcript source for a real, in-progress Fireflies meeting. */
 class FirefliesLiveSource implements TranscriptSource {
@@ -27,50 +28,105 @@ class FirefliesLiveSource implements TranscriptSource {
 }
 
 /**
- * The always-on watcher. Polls Fireflies for meetings that are live and starts a
- * build worker for each. Fireflies is the trigger: because the notetaker joins
- * early, a meeting appears here around the time it starts, at which point the full
- * transcript-so-far is available. Reports state each tick so the host can show/hide
- * the menu bar.
+ * Manual trigger for the build-bot. There is NO background polling — nothing happens
+ * until the user presses "Start on current meeting" in the menu bar. That does one
+ * check of Fireflies' active_meetings and starts a worker for each live meeting found.
+ *
+ * If nothing is live yet (you joined before the Fireflies bot did), it arms a bounded,
+ * cancelable watch that re-checks every few seconds and auto-starts the moment the bot
+ * joins — then disarms.
  */
 export class Orchestrator {
   private ff = new FirefliesClient();
   private activeMeetingIds = new Set<string>();
-  private timer: NodeJS.Timeout | null = null;
+  private watchTimer: NodeJS.Timeout | null = null;
+  private watchDeadline = 0;
 
-  constructor(private onState?: (s: OrchestratorState) => void) {}
+  constructor(private onEvent?: (e: OrchEvent) => void) {}
 
-  async start(): Promise<void> {
-    log.info(`watching Fireflies for live meetings every ${config.activePollMs / 1000}s`);
-    await this.tick();
-    this.timer = setInterval(() => void this.tick().catch((e) => log.error(e)), config.activePollMs);
+  isWatching(): boolean {
+    return this.watchTimer !== null;
+  }
+
+  /** Menu-bar entry point. Check now; if nothing live, arm the bounded watch. */
+  async startOnCurrentMeeting(): Promise<void> {
+    let r: CheckResult;
+    try {
+      r = await this.checkOnce();
+    } catch (err) {
+      this.emit({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    if (r.started.length) {
+      this.emit({ type: "started", meetings: r.started });
+      return;
+    }
+    if (r.already > 0) {
+      this.emit({ type: "already", count: r.already });
+      return;
+    }
+    this.armWatch();
+  }
+
+  /** Stop the bounded watch (user pressed "Stop looking", or we started/timed out). */
+  cancelWatch(): void {
+    if (this.watchTimer) {
+      clearInterval(this.watchTimer);
+      this.watchTimer = null;
+      log.info("watch cancelled");
+    }
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    this.cancelWatch();
   }
 
-  private async tick(): Promise<void> {
-    let active;
-    try {
-      active = await this.ff.getActiveMeetings();
-    } catch (err) {
-      log.error("failed to fetch active meetings:", err instanceof Error ? err.message : err);
-      this.onState?.({ pendingSoon: false, activeCount: botState.activeIds().length });
+  private armWatch(): void {
+    this.watchDeadline = Date.now() + config.watchMaxMs;
+    log.info(
+      `no live meeting yet — watching every ${config.watchPollMs / 1000}s ` +
+        `for up to ${Math.round(config.watchMaxMs / 60000)} min`,
+    );
+    this.emit({ type: "watching" });
+    this.watchTimer = setInterval(() => void this.watchTick(), config.watchPollMs);
+  }
+
+  private async watchTick(): Promise<void> {
+    if (Date.now() > this.watchDeadline) {
+      this.cancelWatch();
+      this.emit({ type: "timeout" });
       return;
     }
-    this.activeMeetingIds = new Set(active.map((m) => m.id));
-
-    if (botState.listeningEnabled) {
-      for (const m of active) {
-        if (botState.isSkipped(m.id) || botState.isActive(m.id)) continue;
-        log.info(`live meeting "${m.title ?? m.id}" (${m.id}) — starting worker`);
-        this.spawnWorker(m.id);
-      }
+    let r: CheckResult;
+    try {
+      r = await this.checkOnce();
+    } catch (err) {
+      log.error("watch check failed (will retry):", err instanceof Error ? err.message : err);
+      return;
     }
+    if (r.started.length) {
+      this.cancelWatch();
+      this.emit({ type: "started", meetings: r.started });
+    }
+  }
 
-    this.onState?.({ pendingSoon: active.length > 0, activeCount: botState.activeIds().length });
+  /** One check of active_meetings; spawn a worker for each new live meeting. */
+  private async checkOnce(): Promise<CheckResult> {
+    const active = await this.ff.getActiveMeetings();
+    this.activeMeetingIds = new Set(active.map((m) => m.id));
+    const started: { id: string; title: string }[] = [];
+    let already = 0;
+    for (const m of active) {
+      if (botState.isActive(m.id)) {
+        already++;
+        continue;
+      }
+      if (botState.isSkipped(m.id)) continue;
+      log.info(`starting worker for live meeting "${m.title ?? m.id}" (${m.id})`);
+      this.spawnWorker(m.id);
+      started.push({ id: m.id, title: m.title ?? m.id });
+    }
+    return { started, already, activeCount: active.length };
   }
 
   private spawnWorker(meetingId: string): void {
@@ -81,17 +137,28 @@ export class Orchestrator {
     void runMeetingWorker({
       meetingId,
       source,
-      shouldStop: () => botState.isSkipped(meetingId) || !botState.listeningEnabled,
+      shouldStop: () => botState.isSkipped(meetingId),
     })
       .catch((err) => log.error(`worker for ${meetingId} failed:`, err))
       .finally(() => botState.clearActive(meetingId));
   }
+
+  private emit(e: OrchEvent): void {
+    this.onEvent?.(e);
+  }
 }
 
-// Headless run (no menu bar) for debugging.
+interface CheckResult {
+  started: { id: string; title: string }[];
+  already: number;
+  activeCount: number;
+}
+
+// Headless one-shot check for debugging: `npm run watch`. If nothing is live it arms
+// the watch and keeps polling (Ctrl+C to exit).
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const orch = new Orchestrator((s) => log.info("state:", JSON.stringify(s)));
-  orch.start().catch((err) => {
+  const orch = new Orchestrator((e) => log.info("event:", JSON.stringify(e)));
+  orch.startOnCurrentMeeting().catch((err) => {
     log.error(err instanceof Error ? err.message : err);
     process.exit(1);
   });

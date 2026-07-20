@@ -3,39 +3,42 @@
 A macOS background app that listens to your meetings and **builds things live** — working
 code/prototypes and specs — as people describe them, using Claude Code.
 
-**It runs on its own.** Once installed, a headless watcher starts at login and stays
-invisible. When your **Fireflies** notetaker joins a meeting, a menu-bar icon pops up and
-a **Ghostty terminal window opens with an interactive Claude Code session** inside a folder
-named after the meeting. That session is the **orchestrator**: it doesn't build things
-itself — it understands what's being asked, spins up a team of persistent worker agents,
-and delegates the parts to them. You never launch it manually; the menu bar exists only to
-pause or shut it down. (Fireflies joins calls early, so this is your effective "meeting
-starting" signal — no calendar integration needed.)
+**It lives in your menu bar.** Once installed, it auto-starts at login and sits in the menu
+bar doing nothing until you tell it to. When you're in a meeting (with the **Fireflies**
+notetaker recording it), you click **"Start on current meeting"** in its dropdown. It finds
+the live meeting and opens a **Ghostty terminal window with an interactive Claude Code
+session** inside a folder named after the meeting. That session is the **orchestrator**: it
+doesn't build things itself — it understands what's being asked, spins up a team of
+persistent worker agents, and delegates the parts to them.
+
+If you click before the Fireflies bot has joined, it doesn't give up — it watches for a few
+minutes and starts automatically the moment the bot joins (cancelable from the menu).
 
 ## How it works
 
 ```
-LaunchAgent (auto-start at login) → headless watcher, invisible while idle
-  └─ watcher: polls Fireflies every ~30s for meetings that are live. When one
-       appears it shows the menu bar and starts a worker, which
-     └─ creates <builds-dir>/<date>-<meeting>/, seeds ORCHESTRATOR.md + the mesh +
-        a `mesh` CLI + TRANSCRIPT.md, and opens a Ghostty window running `claude`
-        (Opus 4.8) in that folder — the ORCHESTRATOR
+LaunchAgent (auto-start at login) → menu-bar app, idle until you press Start
+  └─ you press "Start on current meeting" → one check of Fireflies active_meetings
+       ├─ live meeting found → start it (below)
+       └─ none yet → watch every ~20s (up to 10 min), auto-start when the bot joins
+     └─ starting a meeting: creates <builds-dir>/<date>-<meeting>/, seeds
+        ORCHESTRATOR.md + the mesh + a `mesh` CLI + TRANSCRIPT.md, and opens a Ghostty
+        window running `claude` (Opus 4.8) in that folder — the ORCHESTRATOR
           ├─ orchestrator: reads the transcript, decomposes the work, and delegates
           │   parts to persistent worker agents via `./mesh`. It stays free to talk
           │   to you and integrates the pieces. It does not code itself.
           ├─ workers: long-lived `claude` processes, one per slice of work, each in
           │   its own folder with its own memory. They build in parallel, message
           │   each other and the orchestrator, and stay alive across tasks.
-          └─ the watcher keeps TRANSCRIPT.md fresh every ~10s. When the meeting ends
+          └─ a watcher keeps TRANSCRIPT.md fresh every ~10s. When the meeting ends
               it marks it ENDED — which only tells the orchestrator to write SUMMARY.md
               and keep coordinating. Nothing is ever told to stop.
 ```
 
-The menu bar appears only while a meeting is live or a build is running, and disappears
-when idle. Every Claude session (orchestrator and workers) runs on your **local Claude Code
-login** (your `claude` subscription) — no API key. `get_transcript` returns everything
-captured since the meeting began, so no content is lost.
+The menu bar is always there; nothing runs until you press Start (no background polling).
+Every Claude session (orchestrator and workers) runs on your **local Claude Code login**
+(your `claude` subscription) — no API key. `get_transcript` returns everything captured
+since the meeting began, so no content is lost.
 
 **Why an orchestrator + workers?** So the agent you talk to isn't head-down coding — it
 stays free to think, answer you, and steer — while many workers make progress in parallel,
@@ -139,22 +142,24 @@ The bot reads Fireflies' live transcript — it only exists if the Fireflies not
 npm run install:agent      # builds + registers the LaunchAgent (starts now and at every login)
 ```
 
-From here it runs by itself. To remove it: `npm run uninstall:agent`.
+From here the menu-bar app is always available at login. To remove it:
+`npm run uninstall:agent`.
 
 ## Using it
 
-You don't start it — it's already running. When Fireflies joins a meeting the menu-bar
-icon appears (🎙️). Its menu is the only control surface:
+The app is always in your menu bar (🎙️). When you're in a meeting, open its dropdown and:
 
-- **Listening enabled** — master pause switch.
-- **Skip current meeting(s)** — stop building for the meeting(s) in progress.
+- **Start on current meeting** — checks Fireflies for a live meeting and starts the bot on
+  it. If the Fireflies bot hasn't joined yet, it switches to **watching** (👀) and starts
+  automatically once it does.
+- **Stop looking** — shown while watching; cancels the wait.
+- **Skip / stop current meeting(s)** — shown while building (🛠️); stops the build(s) in
+  progress.
 - **Open output folder** — jump to the meeting folders (`/Users/ebell/Projects/`).
-- **Quit** — shut the whole thing down until next login (or run `npm run uninstall:agent`
-  to stop it starting again).
+- **Quit** — shut it down until next login (or `npm run uninstall:agent` to stop auto-start).
 
-Logs stream to `logs/buildbot.log`.
-
-To run it in the foreground for debugging (no LaunchAgent): `npm run app`.
+Nothing runs until you press Start — there's no background polling. Logs stream to
+`logs/buildbot.log`. To run it in the foreground for debugging: `npm run app`.
 
 ## Try it without a live meeting (recommended first step)
 
@@ -178,16 +183,16 @@ test the pipeline **without** opening a window or starting a real Claude session
 npm run typecheck        # tsc --noEmit
 npm run test:mesh        # offline integration test of the agent mesh (fake Claude)
 npm run verify:fireflies # sanity-check your Fireflies key + queries
-npm run watch            # run the Fireflies watcher headless (no menu bar), for debugging
+npm run watch            # one-shot: check for a live meeting now (headless), for debugging
 ```
 
 ## Notes & caveats
 
-- **Trigger timing.** The bot engages when Fireflies reports the meeting as live
-  (`active_meetings`). Since the notetaker joins early, that's around the meeting start; no
-  transcript is lost — `get_transcript` captures from the beginning.
+- **Trigger.** You press "Start"; the bot engages when Fireflies reports the meeting as live
+  (`active_meetings`). If you press before the bot has joined, it watches and starts once it
+  does. No transcript is lost — `get_transcript` captures from the beginning.
 - **`active_meetings` requires a Fireflies plan that exposes it.** If your plan/API doesn't
-  return live meetings, the watcher logs the error and the offline replay path still works.
+  return live meetings, Start reports an error and the offline replay path still works.
   Verify with `npm run watch` while a meeting is live.
 - **The `is_live` transcript field is optional.** The bot doesn't depend on it — a meeting
   is treated as live for as long as it appears in `active_meetings`. Once it drops off, the

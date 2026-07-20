@@ -29,8 +29,10 @@ export const config = {
   // visual moments close to real time — that keeps the live Mac screenshots timely.
   // Faster polling = more Fireflies API calls; raise it if you hit rate limits.
   transcriptPollMs: Number(optional("TRANSCRIPT_POLL_SECONDS", "10")) * 1000,
-  // How often the watcher checks Fireflies for meetings that just went live.
-  activePollMs: Number(optional("ACTIVE_POLL_SECONDS", "30")) * 1000,
+  // Bounded watch after you press "Start on current meeting" and Fireflies hasn't
+  // joined yet: how often to re-check, and how long to keep watching before giving up.
+  watchPollMs: Number(optional("WATCH_POLL_SECONDS", "20")) * 1000,
+  watchMaxMs: Number(optional("WATCH_MAX_MINUTES", "10")) * 60 * 1000,
 
   // Where per-meeting folders are created. Each meeting gets its own
   // <buildsDir>/<date>-<slug>/ that the Ghostty/Claude session works inside.

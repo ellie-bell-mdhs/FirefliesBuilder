@@ -1,12 +1,9 @@
 /**
- * Shared runtime state, owned by the menu-bar app (Phase 3) and read by the
- * orchestrator each tick. Kept as a tiny singleton so the tray UI and the poll
- * loop see the same flags without wiring an event bus.
+ * Shared runtime state, owned by the menu-bar app and read by the orchestrator.
+ * Kept as a tiny singleton so the tray UI and the orchestrator see the same sets
+ * without wiring an event bus.
  */
 class BotState {
-  /** Master switch. When false the orchestrator does not start new workers. */
-  listeningEnabled = true;
-
   /** Fireflies meeting IDs the user chose to skip (e.g. "skip current meeting"). */
   private skipped = new Set<string>();
 
