@@ -53,6 +53,13 @@ export async function runBuildPass(input: BuildPassInput): Promise<string> {
     ? finalPrompt(meetingTitle, fullTranscript)
     : livePrompt(meetingTitle, fullTranscript, newSentences);
 
+  // Run against the LOCAL Claude Code login (your `claude` subscription), not the
+  // Anthropic API. The Agent SDK already runs Claude Code locally; auth resolves to
+  // the stored login only when ANTHROPIC_API_KEY is absent — an empty-string key
+  // (e.g. a blank line in .env) still "wins" auth and fails, so strip it here.
+  const childEnv: Record<string, string | undefined> = { ...process.env };
+  if (!childEnv.ANTHROPIC_API_KEY) delete childEnv.ANTHROPIC_API_KEY;
+
   const q = query({
     prompt,
     options: {
@@ -65,9 +72,7 @@ export async function runBuildPass(input: BuildPassInput): Promise<string> {
       allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_APPEND },
       maxTurns: isFinal ? 40 : 20,
-      // Pass through the environment so the SDK resolves credentials (explicit
-      // ANTHROPIC_API_KEY if set, otherwise the ambient Claude Code login).
-      env: process.env as Record<string, string | undefined>,
+      env: childEnv,
     },
   });
 

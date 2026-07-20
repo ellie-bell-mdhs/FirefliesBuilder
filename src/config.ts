@@ -16,10 +16,8 @@ function optional(name: string, fallback: string): string {
 }
 
 export const config = {
-  // Optional: the Claude Agent SDK also resolves an ambient Claude Code login
-  // (`claude` CLI). Only inject a key if the user set one explicitly.
-  anthropicApiKey: (): string | undefined => process.env.ANTHROPIC_API_KEY || undefined,
-
+  // NB: the build agent runs against the local Claude Code login (your `claude`
+  // subscription), not the Anthropic API — see build-agent.ts. No API key here.
   fireflies: {
     apiKey: () => required("FIREFLIES_API_KEY"),
     apiUrl: optional("FIREFLIES_API_URL", "https://api.fireflies.ai/graphql"),

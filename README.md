@@ -35,12 +35,13 @@ node node_modules/electron/install.js
 
 ### 2. Credentials — copy `.env.example` to `.env` and fill in
 
-- **`ANTHROPIC_API_KEY`** — for the build agent. (If you're signed into the `claude`
-  CLI, the Agent SDK can use that login instead; the key is optional.)
 - **`FIREFLIES_API_KEY`** — Fireflies dashboard → Settings → Developer Settings → API Key.
 
-That's the only credential you need — the bot uses Fireflies both to detect live
-meetings and to read their transcripts. No calendar/Microsoft setup required.
+That's the only credential you need. The build step runs your **local Claude Code login**
+(your `claude` subscription, on Opus 4.8) rather than the paid Anthropic API — so make
+sure you've run `claude` once and signed in. Leave `ANTHROPIC_API_KEY` blank; setting it
+would route the build agent to the metered API instead. No calendar/Microsoft setup
+required.
 
 ### 3. Fireflies must be recording your meetings
 
