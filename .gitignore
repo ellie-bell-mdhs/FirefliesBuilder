@@ -10,3 +10,4 @@ dist/
 # Local scratch; keep the folder, ignore generated meeting output by default.
 # Comment the next line out if you want generated builds tracked in git.
 builds/
+logs/

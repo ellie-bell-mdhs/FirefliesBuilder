@@ -10,10 +10,14 @@
     "orchestrator": "tsx src/orchestrator.ts",
     "build": "tsc",
     "app": "npm run build && electron dist/main.js",
-    "verify:fireflies": "tsx src/verify-fireflies.ts"
+    "verify:fireflies": "tsx src/verify-fireflies.ts",
+    "login": "tsx src/login.ts",
+    "install:agent": "npm run build && node scripts/launchagent.mjs install",
+    "uninstall:agent": "node scripts/launchagent.mjs uninstall"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.77",
+    "@azure/msal-node": "^5.4.1",
     "dotenv": "^16.6.1"
   },
   "devDependencies": {
