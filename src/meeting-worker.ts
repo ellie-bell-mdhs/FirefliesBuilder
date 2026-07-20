@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "./config.js";
+import { config, projectRoot } from "./config.js";
 import { makeLogger } from "./logger.js";
 import { launchClaudeInGhostty } from "./ghostty.js";
+import { initBus } from "./mesh/bus.js";
 import type { Sentence } from "./fireflies/client.js";
 
 /** A point-in-time view of a meeting's transcript. */
@@ -52,65 +53,80 @@ function renderSentences(sentences: Sentence[]): string {
     .join("\n");
 }
 
-/** Instructions Claude reads once at the top of the session. */
-const BUILDBOT_MD = `# Build-bot instructions
+/**
+ * Write an executable `mesh` wrapper into the meeting folder so the orchestrator (and,
+ * via its absolute path, the workers) can drive the mesh with a bare `./mesh ...`. The
+ * wrapper injects `--meeting <thisFolder>` and points at the built CLI in dist/.
+ */
+function writeMeshWrapper(workspace: string): void {
+  const cli = path.join(projectRoot, "dist", "mesh", "cli.js");
+  const wrapper = path.join(workspace, "mesh");
+  const script =
+    `#!/bin/sh\n` +
+    `# Auto-generated. Drives the agent mesh for this meeting.\n` +
+    `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} --meeting ${JSON.stringify(workspace)} "$@"\n`;
+  fs.writeFileSync(wrapper, script);
+  fs.chmodSync(wrapper, 0o755);
+}
 
-You are a "build bot" sitting in on a live meeting. As people describe things they
-want, you build them right here in this folder — real code and prototypes, plus
-specs/docs — without being asked turn by turn.
+/** Instructions the orchestrator reads once at the top of the session. */
+const ORCHESTRATOR_MD = `# Orchestrator instructions
+
+You are the **orchestrator** for a live meeting. You do **not** build things yourself —
+your job is to deeply understand what people are asking for, break it into parts, and
+**delegate each part to a persistent worker agent**. You coordinate them and bring the
+pieces together. Staying free to think and to talk to me matters more than doing any
+one task, so hand off the actual coding/writing to workers.
+
+## Your team: persistent worker agents
+
+You command a mesh of long-lived worker agents through the \`mesh\` CLI (run it with Bash;
+it's in this folder as \`./mesh\`). Workers are **persistent**: each keeps its own memory
+and its own folder and stays alive across tasks — they don't vanish after one job. They
+can talk to each other and to you.
+
+- Create a worker for a slice of work:  \`./mesh spawn --name <name> --role "<what it owns>"\`
+- Give a worker a task:                 \`./mesh send --to <name> --type task --msg "<task>"\`
+- Ask a worker something:               \`./mesh send --to <name> --type question --msg "..."\`
+- See your team + their status:         \`./mesh agents\`
+- Read the shared board (their status): \`./mesh board\`
+- Check your inbox (their replies):     \`./mesh inbox\`
+- Wind a worker down:                   \`./mesh stop --name <name>\`  (or \`--all\`)
+
+Workers report results back to your inbox and post status to \`BOARD.md\`. Check
+\`./mesh inbox\` and \`./mesh board\` regularly — especially when I ask how things are
+going — to know where everything stands and to integrate the pieces.
+
+## How to run the meeting
+
+1. Read \`TRANSCRIPT.md\` to understand what's being asked. Re-read it every so often for
+   new content (a watcher updates it ~every 40s) and to notice when the meeting ends.
+2. Decompose the work into cohesive parts and spin up a worker per part with a clear
+   role. Reuse existing workers for follow-on work rather than always spawning new ones.
+3. Delegate concrete tasks. Let workers coordinate directly with each other when their
+   pieces interconnect (they have the same \`mesh\` CLI).
+4. Integrate: pull results together, keep a top-level \`SPEC.md\` describing the whole
+   thing and how the parts fit, and resolve conflicts between workers.
 
 ## Be fully autonomous — never stop to ask me
 
-This runs unattended during the meeting. **Do not wait for input and do not ask me
-questions.** Whenever you hit something you'd normally ask about — an ambiguity, a
-missing detail, a design fork — pick the most reasonable option yourself and keep
-moving. Momentum matters more than getting every call perfect; anything uncertain gets
-reviewed afterward (see DECISIONS.md below). By the end of the meeting, build as much as
-you reasonably can — time willing.
-
-## Log the calls you weren't sure about → DECISIONS.md
-
-Maintain \`DECISIONS.md\` in this folder. Every time you make a judgment call you're not
-confident about, append an entry (newest last):
-
-- **Question** — what you would have asked me.
-- **Decision** — what you chose to do.
-- **Why** — your reasoning.
-
-This is exactly what I review after the meeting to confirm or change your calls, so be
-honest about anything shaky — don't hide guesses. We'll go through it together and adjust
-whatever needs adjusting.
-
-## The transcript is live
-
-\`TRANSCRIPT.md\` holds the meeting transcript **so far**. A background watcher updates it
-every ~40 seconds while the meeting runs. Read it now to catch up, and **re-read it after
-each build pass** to pick up new content — and to notice when the meeting ends.
-
-## How to build
-
-- Maintain a \`SPEC.md\` at the folder root: what's been discussed and decided, plus a
-  short running build log (newest entry last).
-- Only build something once the idea is settled enough to act on. If the newest
-  transcript is just partial or exploratory chatter, note it in \`SPEC.md\` and move on.
-- Prefer APPEND/REFINE over rewrite. Don't restart prior work because a later sentence
-  rephrased something — evolve it.
-- Everything you produce is a DRAFT until I confirm it later. Keep files small, runnable,
-  and organized (group a prototype under its own subfolder).
-- Don't invent scope that wasn't discussed.
+Do not wait for my input and do not ask me questions during the meeting. Make every
+judgment call yourself (and instruct workers to do the same). Log anything you or a
+worker were unsure about in \`DECISIONS.md\` (newest last): **Question** (what you'd have
+asked me), **Decision** (what was chosen), **Why**. That's my after-the-meeting review
+list — be honest about shaky calls; we'll adjust together.
 
 ## When the meeting ends
 
 The bottom of \`TRANSCRIPT.md\` tells you when the meeting has **ENDED**. This does **not**
-mean stop, and it changes nothing about how you work — keep building if there's more to
-do. It has exactly one effect: write/refresh a \`SUMMARY.md\` for me and print it in this
-session, so I can catch up when I'm back. Keep \`SUMMARY.md\` short and surface-level:
+mean stop — keep coordinating and let workers keep building. Its one effect: write/refresh
+a \`SUMMARY.md\` and print it here so I can catch up. Keep it surface-level:
 
-- **What you're building** — a plain-language overview.
-- **Where you are right now** — what's done and what's still in progress.
-- **Decisions to review** — point me at \`DECISIONS.md\` for the calls you weren't sure of.
+- **What's being built** — plain-language overview of the whole thing.
+- **Who's doing what** — each worker and where its piece stands (pull from \`./mesh board\`).
+- **Decisions to review** — point me at \`DECISIONS.md\`.
 
-Then carry on building.
+Then carry on.
 `;
 
 /**
@@ -126,16 +142,18 @@ function writeTranscript(workspace: string, snapshot: TranscriptSnapshot): void 
     ? `\n\n---\n_Meeting IN PROGRESS — updated as new transcript arrives. Re-read it for new content._`
     : `\n\n---\n**MEETING ENDED.** This does NOT mean stop — keep building if there is more to do. ` +
       `Its only effect: write/refresh SUMMARY.md (what you're building at a surface level, and ` +
-      `where you are) and print it here for me, then carry on. See BUILDBOT.md.`;
+      `where you are) and print it here for me, then carry on. See ORCHESTRATOR.md.`;
   fs.writeFileSync(path.join(workspace, "TRANSCRIPT.md"), header + "\n" + body + footer + "\n");
 }
 
 const KICKOFF_PROMPT =
-  "Read BUILDBOT.md for how to work — you run FULLY AUTONOMOUSLY: never ask me " +
-  "questions, decide every call yourself, and log the uncertain ones to DECISIONS.md. " +
-  "Then read TRANSCRIPT.md for the meeting so far and start building. Re-read " +
-  "TRANSCRIPT.md after each pass for new content and to notice when the meeting ends " +
-  "(which only means: write SUMMARY.md, then keep going).";
+  "You are the ORCHESTRATOR. Read ORCHESTRATOR.md for how to work — you DELEGATE, you " +
+  "don't build yourself. Use the ./mesh CLI to spawn persistent worker agents and hand " +
+  "them the parts of the work, then integrate their results. Run FULLY AUTONOMOUSLY: " +
+  "never ask me questions, decide every call yourself, and log uncertain ones to " +
+  "DECISIONS.md. Read TRANSCRIPT.md for the meeting so far, then start decomposing and " +
+  "delegating. Re-read TRANSCRIPT.md periodically for new content and to notice when the " +
+  "meeting ends (which only means: write SUMMARY.md, then keep coordinating).";
 
 /**
  * Drive one meeting: set up its workspace, open a Ghostty window running an
@@ -156,8 +174,11 @@ export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
   fs.mkdirSync(workspace, { recursive: true });
   log.info(`workspace: ${workspace}`);
 
-  // Seed the folder and open the interactive session once.
-  fs.writeFileSync(path.join(workspace, "BUILDBOT.md"), BUILDBOT_MD);
+  // Seed the folder: orchestrator brief, the agent mesh, the `mesh` CLI wrapper, and
+  // the first transcript. Then open the interactive orchestrator session once.
+  fs.writeFileSync(path.join(workspace, "ORCHESTRATOR.md"), ORCHESTRATOR_MD);
+  initBus(workspace);
+  writeMeshWrapper(workspace);
   writeTranscript(workspace, first);
   launchClaudeInGhostty({
     workspace,

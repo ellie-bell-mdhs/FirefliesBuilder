@@ -7,10 +7,11 @@
   "scripts": {
     "replay": "tsx src/replay.ts",
     "typecheck": "tsc --noEmit",
-    "orchestrator": "tsx src/orchestrator.ts",
+    "watch": "tsx src/orchestrator.ts",
     "build": "tsc",
     "app": "npm run build && electron dist/main.js",
     "verify:fireflies": "tsx src/verify-fireflies.ts",
+    "test:mesh": "tsx src/mesh/mesh.test.ts",
     "install:agent": "npm run build && node scripts/launchagent.mjs install",
     "uninstall:agent": "node scripts/launchagent.mjs uninstall"
   },
