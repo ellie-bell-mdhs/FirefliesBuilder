@@ -1,0 +1,16 @@
+[
+  { "speaker_name": "Erik", "text": "Alright, thanks for hopping on. I want to talk through a little internal tool." },
+  { "speaker_name": "Dana", "text": "Sure, what are you thinking?" },
+  { "speaker_name": "Erik", "text": "We keep getting CSV exports from a vendor and everyone hand-converts them to JSON. I want a small command line tool that does it for us." },
+  { "speaker_name": "Dana", "text": "Okay so a CLI. What should the interface be?" },
+  { "speaker_name": "Erik", "text": "You run it with the path to a CSV file and it prints JSON to stdout. If you pass an output path with a flag it writes to that file instead." },
+  { "speaker_name": "Dana", "text": "Got it. Header row becomes the object keys?" },
+  { "speaker_name": "Erik", "text": "Yes, first row is the header, each following row becomes one object keyed by the header names." },
+  { "speaker_name": "Dana", "text": "Should we support a delimiter other than comma? Some of these are semicolon separated." },
+  { "speaker_name": "Erik", "text": "Good call. Add a delimiter flag that defaults to comma. And add a pretty-print flag for indented JSON." },
+  { "speaker_name": "Dana", "text": "What language?" },
+  { "speaker_name": "Erik", "text": "Node, plain JavaScript, no external dependencies. Keep it one small script plus a short README explaining usage." },
+  { "speaker_name": "Dana", "text": "And if the file is missing or a row has the wrong number of columns?" },
+  { "speaker_name": "Erik", "text": "Print a clear error to stderr and exit with a non-zero code. Don't crash with a stack trace." },
+  { "speaker_name": "Erik", "text": "That's it for this one. Let's build that." }
+]

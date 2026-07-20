@@ -1,0 +1,21 @@
+{
+  "name": "meeting-build-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Listens to your meetings via Fireflies and builds code/docs live with a Claude coding agent.",
+  "type": "module",
+  "scripts": {
+    "replay": "tsx src/replay.ts",
+    "typecheck": "tsc --noEmit",
+    "orchestrator": "tsx src/orchestrator.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
+  }
+}
