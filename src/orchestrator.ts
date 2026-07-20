@@ -1,14 +1,13 @@
 import { config } from "./config.js";
 import { makeLogger } from "./logger.js";
 import { botState } from "./state.js";
-import { GraphCalendar, type CalendarEvent } from "./calendar/graph.js";
-import { FirefliesClient, type ActiveMeeting } from "./fireflies/client.js";
+import { FirefliesClient } from "./fireflies/client.js";
 import { runMeetingWorker, type TranscriptSource } from "./meeting-worker.js";
 
 const log = makeLogger("orchestrator");
 
 export interface OrchestratorState {
-  /** Any calendar event is within the lead window (about to start / in progress). */
+  /** A meeting is currently live in Fireflies (so the menu bar should show). */
   pendingSoon: boolean;
   /** Number of build workers currently running. */
   activeCount: number;
@@ -27,60 +26,24 @@ class FirefliesLiveSource implements TranscriptSource {
   }
 }
 
-function normalizeUrl(u: string | null): string | null {
-  if (!u) return null;
-  try {
-    const p = new URL(u);
-    return (p.host + p.pathname).toLowerCase().replace(/\/+$/, "");
-  } catch {
-    return u.toLowerCase();
-  }
-}
-function normalizeTitle(s: string | null): string {
-  return (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-/** Best-effort match of a calendar event to an in-progress Fireflies meeting. */
-export function matchMeeting(event: CalendarEvent, active: ActiveMeeting[]): ActiveMeeting | null {
-  const evUrl = normalizeUrl(event.joinUrl);
-  if (evUrl) {
-    const byUrl = active.find((m) => normalizeUrl(m.meeting_link) === evUrl);
-    if (byUrl) return byUrl;
-  }
-  const evTitle = normalizeTitle(event.subject);
-  if (evTitle) {
-    const byTitle = active.find((m) => {
-      const mt = normalizeTitle(m.title);
-      return mt && (mt === evTitle || mt.includes(evTitle) || evTitle.includes(mt));
-    });
-    if (byTitle) return byTitle;
-  }
-  const byTime = active.find(
-    (m) => m.start_time != null && Math.abs(m.start_time - event.startUtcMs) < 10 * 60_000,
-  );
-  return byTime ?? null;
-}
-
 /**
- * The always-on watcher. Polls the Outlook calendar; ~LEAD before an event it
- * reports `pendingSoon` (so the app can show the menu bar) and, once Fireflies is
- * recording the meeting, starts a build worker. Reports state each tick so the
- * host can show/hide the menu bar and keep it current.
+ * The always-on watcher. Polls Fireflies for meetings that are live and starts a
+ * build worker for each. Fireflies is the trigger: because the notetaker joins
+ * early, a meeting appears here around the time it starts, at which point the full
+ * transcript-so-far is available. Reports state each tick so the host can show/hide
+ * the menu bar.
  */
 export class Orchestrator {
   private ff = new FirefliesClient();
-  private cal = new GraphCalendar();
   private activeMeetingIds = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private onState?: (s: OrchestratorState) => void) {}
 
-  /** Throws NotSignedInError if the calendar login hasn't been set up yet. */
   async start(): Promise<void> {
-    await this.cal.signInSilent();
-    log.info(`watching Outlook every ${config.calendarPollMs / 1000}s, lead ${config.leadMs / 1000}s`);
+    log.info(`watching Fireflies for live meetings every ${config.activePollMs / 1000}s`);
     await this.tick();
-    this.timer = setInterval(() => void this.tick().catch((e) => log.error(e)), config.calendarPollMs);
+    this.timer = setInterval(() => void this.tick().catch((e) => log.error(e)), config.activePollMs);
   }
 
   stop(): void {
@@ -89,34 +52,25 @@ export class Orchestrator {
   }
 
   private async tick(): Promise<void> {
-    // Refresh currently-recording meetings (for matching + the live hint).
+    let active;
     try {
-      const active = await this.ff.getActiveMeetings();
-      this.activeMeetingIds = new Set(active.map((m) => m.id));
-
-      const events = await this.cal.upcomingEvents(config.leadMs + 5 * 60_000);
-      const now = Date.now();
-      let pendingSoon = false;
-
-      for (const ev of events) {
-        if (ev.isCancelled) continue;
-        const inWindow = ev.startUtcMs - now <= config.leadMs && now < ev.endUtcMs;
-        if (!inWindow) continue;
-        pendingSoon = true;
-
-        if (!botState.listeningEnabled) continue;
-        const match = matchMeeting(ev, active);
-        if (!match) continue; // Fireflies hasn't joined yet — retry next tick
-        if (botState.isSkipped(match.id) || botState.isActive(match.id)) continue;
-
-        log.info(`matched "${ev.subject}" -> Fireflies ${match.id} — starting worker`);
-        this.spawnWorker(match.id);
-      }
-
-      this.onState?.({ pendingSoon, activeCount: botState.activeIds().length });
+      active = await this.ff.getActiveMeetings();
     } catch (err) {
-      log.error("tick failed:", err instanceof Error ? err.message : err);
+      log.error("failed to fetch active meetings:", err instanceof Error ? err.message : err);
+      this.onState?.({ pendingSoon: false, activeCount: botState.activeIds().length });
+      return;
     }
+    this.activeMeetingIds = new Set(active.map((m) => m.id));
+
+    if (botState.listeningEnabled) {
+      for (const m of active) {
+        if (botState.isSkipped(m.id) || botState.isActive(m.id)) continue;
+        log.info(`live meeting "${m.title ?? m.id}" (${m.id}) — starting worker`);
+        this.spawnWorker(m.id);
+      }
+    }
+
+    this.onState?.({ pendingSoon: active.length > 0, activeCount: botState.activeIds().length });
   }
 
   private spawnWorker(meetingId: string): void {

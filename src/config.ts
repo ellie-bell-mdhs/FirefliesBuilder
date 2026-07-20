@@ -24,19 +24,10 @@ export const config = {
     apiUrl: optional("FIREFLIES_API_URL", "https://api.fireflies.ai/graphql"),
   },
 
-  ms: {
-    clientId: () => required("MS_CLIENT_ID"),
-    tenantId: optional("MS_TENANT_ID", "common"),
-    redirectUri: optional("MS_REDIRECT_URI", "http://localhost:3000/auth/callback"),
-  },
-
   buildModel: optional("BUILD_MODEL", "claude-opus-4-8"),
   transcriptPollMs: Number(optional("TRANSCRIPT_POLL_SECONDS", "40")) * 1000,
-  // How often the watcher polls the Outlook calendar.
-  calendarPollMs: Number(optional("CALENDAR_POLL_SECONDS", "60")) * 1000,
-  // Show the menu bar + arm the build this many seconds before a meeting starts.
-  leadMs: Number(optional("LEAD_SECONDS", "120")) * 1000,
+  // How often the watcher checks Fireflies for meetings that just went live.
+  activePollMs: Number(optional("ACTIVE_POLL_SECONDS", "30")) * 1000,
 
   buildsDir: path.join(projectRoot, "builds"),
-  tokensDir: path.join(projectRoot, ".tokens"),
 } as const;
