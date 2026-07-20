@@ -16,8 +16,8 @@ function optional(name: string, fallback: string): string {
 }
 
 export const config = {
-  // NB: the build agent runs against the local Claude Code login (your `claude`
-  // subscription), not the Anthropic API — see build-agent.ts. No API key here.
+  // NB: each meeting opens a Ghostty window running the `claude` CLI (see
+  // ghostty.ts). It uses your stored Claude Code login — no API key here.
 
   fireflies: {
     apiKey: () => required("FIREFLIES_API_KEY"),
@@ -29,5 +29,7 @@ export const config = {
   // How often the watcher checks Fireflies for meetings that just went live.
   activePollMs: Number(optional("ACTIVE_POLL_SECONDS", "30")) * 1000,
 
-  buildsDir: path.join(projectRoot, "builds"),
+  // Where per-meeting folders are created. Each meeting gets its own
+  // <buildsDir>/<date>-<slug>/ that the Ghostty/Claude session works inside.
+  buildsDir: optional("BUILDS_DIR", "/Users/ebell/Projects"),
 } as const;

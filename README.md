@@ -1,13 +1,14 @@
 # Meeting build-bot
 
 A macOS background app that listens to your meetings and **builds things live** — working
-code/prototypes and specs — as people describe them, using a Claude coding agent.
+code/prototypes and specs — as people describe them, using Claude Code.
 
 **It runs on its own.** Once installed, a headless watcher starts at login and stays
 invisible. When your **Fireflies** notetaker joins a meeting, a menu-bar icon pops up and
-the bot starts building from the live transcript. You never launch it manually; the menu
-bar exists only to pause or shut it down. (Fireflies joins calls early, so this is your
-effective "meeting starting" signal — no calendar integration needed.)
+a **Ghostty terminal window opens with an interactive Claude Code session** inside a folder
+named after the meeting, building from the live transcript. You never launch it manually;
+the menu bar exists only to pause or shut it down. (Fireflies joins calls early, so this is
+your effective "meeting starting" signal — no calendar integration needed.)
 
 ## How it works
 
@@ -15,16 +16,19 @@ effective "meeting starting" signal — no calendar integration needed.)
 LaunchAgent (auto-start at login) → headless watcher, invisible while idle
   └─ watcher: polls Fireflies every ~30s for meetings that are live. When one
        appears it shows the menu bar and starts a worker, which
-     └─ polls the live transcript every ~40s, tracking what's new
-          └─ build agent (Claude Agent SDK, your local Claude Code login / Opus 4.8):
-               writes code + SPEC.md into builds/<date>-<meeting>/, refining as the
-               meeting goes, and does one consolidation pass when the meeting ends.
+     └─ creates builds/<date>-<meeting>/, writes BUILDBOT.md + TRANSCRIPT.md, and
+        opens a Ghostty window running `claude` (Opus 4.8) in that folder
+          └─ the watcher keeps TRANSCRIPT.md up to date every ~40s while the meeting
+             runs; Claude Code builds code + SPEC.md from it, re-reading as it grows,
+             and does a final consolidation pass once TRANSCRIPT.md is marked ENDED.
 ```
 
 The menu bar appears only while a meeting is live or a build is running, and disappears
-when idle. `get_transcript` returns everything captured since the meeting began, so no
-content is lost. Everything built during a meeting is a **draft**; the final pass
-reconciles it against the full transcript.
+when idle. The Claude session runs on your **local Claude Code login** (your `claude`
+subscription) — no API key. `get_transcript` returns everything captured since the meeting
+began, so no content is lost. Everything built during a meeting is a **draft**; the final
+pass reconciles it against the full transcript. Because the session is a real terminal
+window, you can watch it and steer it (e.g. type "keep going") at any time.
 
 ## Setup
 
@@ -36,14 +40,19 @@ npm install
 node node_modules/electron/install.js
 ```
 
+You also need **Ghostty** (the terminal each meeting opens in) and the **`claude` CLI** on
+your PATH. Run `claude` once and sign in — the meeting session uses that stored login.
+
 ### 2. Credentials — copy `.env.example` to `.env` and fill in
 
 - **`FIREFLIES_API_KEY`** — Fireflies dashboard → Settings → Developer Settings → API Key.
 
-That's the only credential. The build step runs your **local Claude Code login** (your
-`claude` subscription, on Opus 4.8), not the paid API — make sure you've run `claude` once
-and signed in, and leave `ANTHROPIC_API_KEY` blank (setting it would route the build agent
-to the metered API). No calendar/Microsoft setup.
+That's the only credential. The Claude Code session that each meeting opens runs on your
+**local Claude Code login** (your `claude` subscription, on Opus 4.8), not the paid API — no
+`ANTHROPIC_API_KEY` needed. No calendar/Microsoft setup.
+
+Meeting folders are created in **`/Users/ebell/Projects/`** by default (`<date>-<meeting>/`);
+override with `BUILDS_DIR` in `.env`.
 
 ### 3. Fireflies must be recording your meetings
 
@@ -65,7 +74,7 @@ icon appears (🎙️). Its menu is the only control surface:
 
 - **Listening enabled** — master pause switch.
 - **Skip current meeting(s)** — stop building for the meeting(s) in progress.
-- **Open output folder** — jump to `builds/`.
+- **Open output folder** — jump to the meeting folders (`/Users/ebell/Projects/`).
 - **Quit** — shut the whole thing down until next login (or run `npm run uninstall:agent`
   to stop it starting again).
 
@@ -76,7 +85,8 @@ To run it in the foreground for debugging (no LaunchAgent): `npm run app`.
 ## Try it without a live meeting (recommended first step)
 
 Replay a past meeting's transcript in growing slices to exercise the whole build
-pipeline — no calendar or menu bar needed:
+pipeline — no calendar or menu bar needed. It creates the meeting folder, writes
+`BUILDBOT.md` + `TRANSCRIPT.md`, and opens the Ghostty/Claude session:
 
 ```bash
 npm run replay -- --fixture fixtures/sample-meeting.json   # bundled sample
@@ -84,7 +94,9 @@ npm run replay -- --id <firefliesTranscriptId>             # a real past meeting
 npm run replay                                             # your most recent meeting
 ```
 
-Output lands in `builds/<date>-<slug>/` (a prototype plus `SPEC.md`).
+The meeting folder lands in `/Users/ebell/Projects/<date>-<slug>/` (or `BUILDS_DIR`). To
+test the pipeline **without** opening a window or starting a real Claude session, set
+`BUILDBOT_NO_LAUNCH=1` — it writes the files and logs what it *would* have launched.
 
 ## Other commands
 
@@ -105,10 +117,12 @@ npm run orchestrator     # run the calendar watcher headless (no menu bar), for 
 - **The `is_live` transcript field is optional.** The bot doesn't depend on it — a meeting
   is treated as live for as long as it appears in `active_meetings`, and the final
   consolidation pass runs once it drops off.
-- **Autonomy & safety.** The build agent runs with permissions bypassed but is scoped to
-  the per-meeting workspace (`builds/<meeting>/`) via its working directory and a fixed
-  tool allowlist (Read/Write/Edit/Bash/Glob/Grep). It won't touch anything outside that
-  folder.
-- **Model.** Defaults to `claude-opus-4-8` (set `BUILD_MODEL` in `.env`).
+- **Autonomy & safety.** Each meeting opens an ordinary interactive Claude Code session in
+  its own folder (`/Users/ebell/Projects/<date>-<meeting>/`). It behaves like any `claude`
+  session you'd start there — your normal permission settings apply, and because it's a
+  visible window you can watch and interrupt it.
+- **Model.** Defaults to `claude-opus-4-8`, passed to `claude --model` (set `BUILD_MODEL`).
+- **Requires Ghostty + the `claude` CLI** on your PATH. Ghostty is single-instance on macOS,
+  so the meeting session opens as a new window in your running Ghostty.
 - **Packaging.** For a real always-available app, bundle with electron-builder and set
   `LSUIElement=true` in the Info.plist so it never appears in the dock.
