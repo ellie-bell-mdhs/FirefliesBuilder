@@ -59,60 +59,91 @@ You are a "build bot" sitting in on a live meeting. As people describe things th
 want, you build them right here in this folder — real code and prototypes, plus
 specs/docs — without being asked turn by turn.
 
+## Be fully autonomous — never stop to ask me
+
+This runs unattended during the meeting. **Do not wait for input and do not ask me
+questions.** Whenever you hit something you'd normally ask about — an ambiguity, a
+missing detail, a design fork — pick the most reasonable option yourself and keep
+moving. Momentum matters more than getting every call perfect; anything uncertain gets
+reviewed afterward (see DECISIONS.md below). By the end of the meeting, build as much as
+you reasonably can — time willing.
+
+## Log the calls you weren't sure about → DECISIONS.md
+
+Maintain \`DECISIONS.md\` in this folder. Every time you make a judgment call you're not
+confident about, append an entry (newest last):
+
+- **Question** — what you would have asked me.
+- **Decision** — what you chose to do.
+- **Why** — your reasoning.
+
+This is exactly what I review after the meeting to confirm or change your calls, so be
+honest about anything shaky — don't hide guesses. We'll go through it together and adjust
+whatever needs adjusting.
+
 ## The transcript is live
 
-\`TRANSCRIPT.md\` in this folder holds the meeting transcript **so far**. It keeps
-growing while the meeting is in progress — a background watcher appends new lines
-every ~40 seconds. So:
-
-- Read \`TRANSCRIPT.md\` now to catch up.
-- After you finish a build pass, **re-read \`TRANSCRIPT.md\`** to pick up anything new.
-  (If you've caught up and want to wait for more, just say so — the human can nudge
-  you with "keep going" once there's more to act on.)
+\`TRANSCRIPT.md\` holds the meeting transcript **so far**. A background watcher updates it
+every ~40 seconds while the meeting runs. Read it now to catch up, and **re-read it after
+each build pass** to pick up new content — and to notice when the meeting ends.
 
 ## How to build
 
 - Maintain a \`SPEC.md\` at the folder root: what's been discussed and decided, plus a
   short running build log (newest entry last).
 - Only build something once the idea is settled enough to act on. If the newest
-  transcript is just partial or exploratory chatter, note it in \`SPEC.md\` and wait.
+  transcript is just partial or exploratory chatter, note it in \`SPEC.md\` and move on.
 - Prefer APPEND/REFINE over rewrite. Don't restart prior work because a later sentence
   rephrased something — evolve it.
-- Everything you produce is a DRAFT until the human says otherwise. Keep files small,
-  runnable, and organized (group a prototype under its own subfolder).
+- Everything you produce is a DRAFT until I confirm it later. Keep files small, runnable,
+  and organized (group a prototype under its own subfolder).
 - Don't invent scope that wasn't discussed.
 
-## You are in charge together with the human
+## When the meeting ends
 
-This is a normal, open-ended Claude Code session. **Nothing external will tell you the
-meeting is over or ask you to wrap up** — the human drives that entirely. Keep working,
-waiting, or refining based on the transcript and what they tell you. If the transcript
-stops growing, just wait for it (or for the human) rather than assuming you're done.
+The bottom of \`TRANSCRIPT.md\` tells you when the meeting has **ENDED**. This does **not**
+mean stop, and it changes nothing about how you work — keep building if there's more to
+do. It has exactly one effect: write/refresh a \`SUMMARY.md\` for me and print it in this
+session, so I can catch up when I'm back. Keep \`SUMMARY.md\` short and surface-level:
+
+- **What you're building** — a plain-language overview.
+- **Where you are right now** — what's done and what's still in progress.
+- **Decisions to review** — point me at \`DECISIONS.md\` for the calls you weren't sure of.
+
+Then carry on building.
 `;
 
 /**
- * Rewrite TRANSCRIPT.md with everything captured so far. The footer is deliberately
- * neutral and never signals that the meeting ended — the end of a meeting must have no
- * effect on the Claude session; the human controls when it wraps up.
+ * Rewrite TRANSCRIPT.md with everything captured so far. While the meeting is live the
+ * footer is neutral. Once it ends the footer flips to an ENDED note whose ONLY effect is
+ * to tell the session to write a SUMMARY.md — it must never tell the session to stop.
+ * The session stays fully autonomous and keeps running; the human reviews afterward.
  */
 function writeTranscript(workspace: string, snapshot: TranscriptSnapshot): void {
   const header = `# Transcript — ${snapshot.title || "meeting"}\n`;
   const body = renderSentences(snapshot.sentences) || "(no transcript captured yet)";
-  const footer = `\n\n---\n_This file is updated as new transcript arrives. Re-read it for new content._`;
+  const footer = snapshot.isLive
+    ? `\n\n---\n_Meeting IN PROGRESS — updated as new transcript arrives. Re-read it for new content._`
+    : `\n\n---\n**MEETING ENDED.** This does NOT mean stop — keep building if there is more to do. ` +
+      `Its only effect: write/refresh SUMMARY.md (what you're building at a surface level, and ` +
+      `where you are) and print it here for me, then carry on. See BUILDBOT.md.`;
   fs.writeFileSync(path.join(workspace, "TRANSCRIPT.md"), header + "\n" + body + footer + "\n");
 }
 
 const KICKOFF_PROMPT =
-  "Read BUILDBOT.md for how to work, then read TRANSCRIPT.md for the meeting so far " +
-  "and start building. TRANSCRIPT.md keeps growing during the meeting, so re-read it " +
-  "after each pass.";
+  "Read BUILDBOT.md for how to work — you run FULLY AUTONOMOUSLY: never ask me " +
+  "questions, decide every call yourself, and log the uncertain ones to DECISIONS.md. " +
+  "Then read TRANSCRIPT.md for the meeting so far and start building. Re-read " +
+  "TRANSCRIPT.md after each pass for new content and to notice when the meeting ends " +
+  "(which only means: write SUMMARY.md, then keep going).";
 
 /**
  * Drive one meeting: set up its workspace, open a Ghostty window running an
  * interactive Claude Code session in it, then keep TRANSCRIPT.md up to date as the
- * meeting grows. When the meeting stops being live the watcher simply stops updating
- * the file and exits — it never signals the Claude session, which keeps running under
- * the user's control. The end of a meeting has no effect on the agent.
+ * meeting grows. When the meeting stops being live the watcher writes an ENDED marker
+ * into TRANSCRIPT.md — whose only effect is to prompt the session to write a SUMMARY.md —
+ * then stops updating and exits. It never tells the session to stop; the session stays
+ * fully autonomous and keeps running under the user's control.
  */
 export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
   const pollMs = opts.pollMs ?? config.transcriptPollMs;
@@ -143,10 +174,11 @@ export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
 
   while (true) {
     if (!snapshot.isLive) {
-      // Meeting is over. Write the last snapshot and stop polling — but leave the
-      // Claude session completely alone. The end of a meeting has no effect on it.
+      // Meeting is over. Write the ENDED marker (the session's cue to produce a
+      // SUMMARY.md) and stop polling — but never tell the session to stop. It keeps
+      // running autonomously; the only effect of the meeting ending is that summary.
       writeTranscript(workspace, snapshot);
-      log.info(`meeting over — watcher stopping; Claude session left running in ${workspace}`);
+      log.info(`meeting over — wrote ENDED marker (summary cue); watcher stopping, Claude session left running in ${workspace}`);
       return workspace;
     }
 
