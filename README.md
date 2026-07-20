@@ -3,8 +3,8 @@
 A macOS background app that listens to your meetings and **builds things live** — working
 code/prototypes and specs — as people describe them, using Claude Code.
 
-**It lives in your menu bar.** Once installed, it auto-starts at login and sits in the menu
-bar doing nothing until you tell it to. When you're in a meeting (with the **Fireflies**
+**It lives in your menu bar.** You toggle it on from **applicationManager** (see Setup); it
+then sits in the menu bar doing nothing until you tell it to. When you're in a meeting (with the **Fireflies**
 notetaker recording it), you click **"Start on current meeting"** in its dropdown. It finds
 the live meeting and opens a **Ghostty terminal window with an interactive Claude Code
 session** inside a folder named after the meeting. That session is the **orchestrator**: it
@@ -17,7 +17,7 @@ minutes and starts automatically the moment the bot joins (cancelable from the m
 ## How it works
 
 ```
-LaunchAgent (auto-start at login) → menu-bar app, idle until you press Start
+toggle on in applicationManager → menu-bar app, idle until you press Start
   └─ you press "Start on current meeting" → one check of Fireflies active_meetings
        ├─ live meeting found → start it (below)
        └─ none yet → watch every ~20s (up to 10 min), auto-start when the bot joins
@@ -136,14 +136,26 @@ override with `BUILDS_DIR` in `.env`.
 The bot reads Fireflies' live transcript — it only exists if the Fireflies notetaker has
 **joined the call**. Turn on auto-join in your Fireflies settings.
 
-### 4. Install the auto-start agent
+### 4. Add it to applicationManager
+
+The app ships as a small `.app` you toggle on/off from
+[applicationManager](../menuBarApplications/applicationManager):
 
 ```bash
-npm run install:agent      # builds + registers the LaunchAgent (starts now and at every login)
+npm run bundle:app     # builds the app + a MeetingBuildBot.app launcher, installed into
+                       # ~/Projects/menuBarApplications/ where applicationManager finds it
 ```
 
-From here the menu-bar app is always available at login. To remove it:
-`npm run uninstall:agent`.
+Then open applicationManager and toggle **MeetingBuildBot** on — the 🎙️ tray appears; toggle
+it off and it's gone. It runs only when toggled on (no launch-at-login). Re-run
+`npm run bundle:app` after code changes to rebuild the app the launcher runs.
+
+The `.app` is a thin launcher: it runs the Electron app from this repo in a login shell (so
+your `claude`/`ghostty`/`ffmpeg`/`node` and `.env` all resolve), and stops just the menu-bar
+app when toggled off — any in-progress meeting (Ghostty window + worker agents) keeps running.
+
+> Legacy: `npm run install:agent` (LaunchAgent auto-start) still exists but is superseded by
+> applicationManager. If you'd installed it before, remove it with `npm run uninstall:agent`.
 
 ## Using it
 
@@ -156,7 +168,7 @@ The app is always in your menu bar (🎙️). When you're in a meeting, open its
 - **Skip / stop current meeting(s)** — shown while building (🛠️); stops the build(s) in
   progress.
 - **Open output folder** — jump to the meeting folders (`/Users/ebell/Projects/`).
-- **Quit** — shut it down until next login (or `npm run uninstall:agent` to stop auto-start).
+- **Quit** — shut down the menu-bar app (same as toggling it off in applicationManager).
 
 Nothing runs until you press Start — there's no background polling. Logs stream to
 `logs/buildbot.log`. To run it in the foreground for debugging: `npm run app`.
@@ -211,8 +223,13 @@ npm run watch            # one-shot: check for a live meeting now (headless), fo
   used by both the orchestrator and the workers.
 - **Requires Ghostty + the `claude` CLI** on your PATH. Ghostty is single-instance on macOS,
   so the orchestrator opens as a new window in your running Ghostty.
-- **The mesh needs the build.** The `mesh` CLI runs from `dist/`, so `npm run install:agent`
+- **The mesh needs the build.** The `mesh` CLI runs from `dist/`, so `npm run bundle:app`
   (or `npm run app`) must have built the project. `npm run replay` seeds a real `mesh`
   wrapper too, but it points at `dist/` — run `npm run build` first if you'll drive it.
-- **Packaging.** For a real always-available app, bundle with electron-builder and set
-  `LSUIElement=true` in the Info.plist so it never appears in the dock.
+- **Toggling off doesn't stop a meeting.** applicationManager's off just quits the menu-bar
+  app; any in-progress Ghostty/orchestrator + worker agents keep running — close them
+  yourself, or use the tray's "Skip / stop" before toggling off.
+- **Packaging.** The `.app` is a launcher that runs this repo (not a self-contained bundle),
+  so keep the repo at `~/Projects/Fireflies`. For a fully standalone build you'd instead use
+  electron-builder to embed Electron — heavier, and it'd need the node/PATH/.env fixes the
+  launcher sidesteps.

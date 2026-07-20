@@ -68,7 +68,7 @@ function spawnVisualCapture(meeting: string, transcriptId: string, log: Logger):
   if (!config.vision.captureEnabled) return;
   const script = path.join(projectRoot, "dist", "vision", "capture.js");
   try {
-    const child = spawn(process.execPath, [script, "--meeting", meeting, "--id", transcriptId], {
+    const child = spawnNodeScript([script, "--meeting", meeting, "--id", transcriptId], {
       detached: true,
       stdio: "ignore",
     });
@@ -81,9 +81,37 @@ function spawnVisualCapture(meeting: string, transcriptId: string, log: Logger):
 }
 
 /**
+ * Resolve a real `node` binary. We must NOT use process.execPath here: when this app
+ * runs under Electron (the menu-bar app), execPath is the Electron binary, not node.
+ * Prefer the common Homebrew locations; fall back to bare `node` on PATH.
+ */
+function resolveNodeBin(): string {
+  for (const c of ["/opt/homebrew/bin/node", "/usr/local/bin/node"]) {
+    if (fs.existsSync(c)) return c;
+  }
+  return "node";
+}
+
+/**
+ * Spawn a Node script robustly whether we're running under plain node or under Electron.
+ * Uses a real node binary if one exists; otherwise re-runs the Electron binary in
+ * node mode (ELECTRON_RUN_AS_NODE) so the script still executes as Node.
+ */
+function spawnNodeScript(
+  scriptArgs: string[],
+  opts: { detached?: boolean; stdio?: "ignore" },
+): ReturnType<typeof spawn> {
+  for (const c of ["/opt/homebrew/bin/node", "/usr/local/bin/node"]) {
+    if (fs.existsSync(c)) return spawn(c, scriptArgs, opts);
+  }
+  return spawn(process.execPath, scriptArgs, { ...opts, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+}
+
+/**
  * Write an executable `mesh` wrapper into the meeting folder so the orchestrator (and,
  * via its absolute path, the workers) can drive the mesh with a bare `./mesh ...`. The
- * wrapper injects `--meeting <thisFolder>` and points at the built CLI in dist/.
+ * wrapper injects `--meeting <thisFolder>` and points at the built CLI in dist/. It runs
+ * a real `node` (not process.execPath, which is Electron in the menu-bar app).
  */
 function writeMeshWrapper(workspace: string): void {
   const cli = path.join(projectRoot, "dist", "mesh", "cli.js");
@@ -91,7 +119,7 @@ function writeMeshWrapper(workspace: string): void {
   const script =
     `#!/bin/sh\n` +
     `# Auto-generated. Drives the agent mesh for this meeting.\n` +
-    `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} --meeting ${JSON.stringify(workspace)} "$@"\n`;
+    `exec ${JSON.stringify(resolveNodeBin())} ${JSON.stringify(cli)} --meeting ${JSON.stringify(workspace)} "$@"\n`;
   fs.writeFileSync(wrapper, script);
   fs.chmodSync(wrapper, 0o755);
 }

@@ -10,6 +10,7 @@
     "watch": "tsx src/orchestrator.ts",
     "build": "tsc",
     "app": "npm run build && electron dist/main.js",
+    "bundle:app": "npm run build && bash launcher/build.sh",
     "verify:fireflies": "tsx src/verify-fireflies.ts",
     "test:mesh": "tsx src/mesh/mesh.test.ts",
     "install:agent": "npm run build && node scripts/launchagent.mjs install",

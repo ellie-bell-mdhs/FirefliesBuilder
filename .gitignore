@@ -11,3 +11,6 @@ dist/
 # Comment the next line out if you want generated builds tracked in git.
 builds/
 logs/
+
+# Compiled launcher .app (rebuilt via `npm run bundle:app`)
+launcher/build/
