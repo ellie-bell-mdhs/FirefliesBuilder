@@ -19,16 +19,7 @@ app.whenReady().then(async () => {
 
   orchestrator = new Orchestrator();
   try {
-    await orchestrator.start((deviceCodeMessage) => {
-      // Surface the Microsoft device-code login instructions in a dialog.
-      void dialog.showMessageBox({
-        type: "info",
-        title: "Connect Outlook calendar",
-        message: "Sign in to Microsoft 365 to let the bot see your meetings.",
-        detail: deviceCodeMessage,
-        buttons: ["OK"],
-      });
-    });
+    await orchestrator.start();
     tray.refresh();
     log.info("orchestrator running");
   } catch (err) {

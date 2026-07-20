@@ -113,36 +113,23 @@ export class FirefliesClient {
   }
 
   /**
-   * Meetings Fireflies is currently recording. The exact query name can vary by
-   * API version; this is verified against your account in Phase 2. Returns [] on
-   * accounts where the endpoint is unavailable rather than throwing.
+   * Meetings Fireflies is currently recording (in-progress or paused). This is
+   * the trigger for the whole bot: when a meeting appears here, Fireflies has
+   * joined and a live transcript is available.
    */
   async getActiveMeetings(): Promise<ActiveMeeting[]> {
-    try {
-      const data = await this.gql<{ liveMeetings: RawActiveMeeting[] }>(
-        `query {
-          liveMeetings { id title meeting_link start_time state }
-        }`,
-      );
-      return (data.liveMeetings ?? []).map((m) => ({
-        id: m.id,
-        title: m.title ?? null,
-        meeting_link: m.meeting_link ?? null,
-        start_time: m.start_time ?? null,
-        state: m.state ?? null,
-      }));
-    } catch (err) {
-      // Endpoint shape differs across plans — surface as empty, log upstream.
-      throw new FirefliesActiveMeetingsUnsupported(String(err));
-    }
-  }
-}
-
-/** Thrown when the active-meetings query shape isn't available on this account. */
-export class FirefliesActiveMeetingsUnsupported extends Error {
-  constructor(detail: string) {
-    super(`Fireflies active-meetings query unavailable for this account: ${detail}`);
-    this.name = "FirefliesActiveMeetingsUnsupported";
+    const data = await this.gql<{ active_meetings: RawActiveMeeting[] }>(
+      `query {
+        active_meetings { id title meeting_link start_time state }
+      }`,
+    );
+    return (data.active_meetings ?? []).map((m) => ({
+      id: m.id,
+      title: m.title ?? null,
+      meeting_link: m.meeting_link ?? null,
+      start_time: m.start_time ?? null,
+      state: m.state ?? null,
+    }));
   }
 }
 

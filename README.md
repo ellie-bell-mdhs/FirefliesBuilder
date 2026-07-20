@@ -2,23 +2,26 @@
 
 A macOS menu-bar app that listens to your meetings (via Fireflies) and **builds things
 live** — working code/prototypes and specs — as people describe them, using a Claude
-coding agent. It watches your Outlook calendar, fires ~2 minutes before a meeting, and
-you can toggle it off from the menu bar any time.
+coding agent. It watches Fireflies for meetings that go live and you can toggle it off
+from the menu bar any time.
 
 ## How it works
 
 ```
 menu bar (toggle on/off, skip a meeting)
-  └─ orchestrator: polls Outlook every ~60s; ~2 min before a meeting it
-       matches the event to the Fireflies meeting being recorded, then
+  └─ orchestrator: polls Fireflies every ~30s for meetings that just went live
+       (Fireflies is the calendar — a meeting appears once its notetaker joins)
      └─ worker: polls the live transcript every ~40s, tracking what's new
           └─ build agent (Claude Agent SDK): writes code + SPEC.md into
                builds/<date>-<meeting>/, refining as the meeting goes,
                and does one consolidation pass when the meeting ends.
 ```
 
-Everything built during a meeting is a **draft**; the final pass reconciles it against
-the full transcript.
+Because Fireflies only exposes meetings once they're live, the bot engages within one
+poll (~30s) of a meeting starting — not before it. You don't lose any content:
+`get_transcript` returns everything captured since the meeting began, so the bot just
+starts building a little after the call opens. Everything built during a meeting is a
+**draft**; the final pass reconciles it against the full transcript.
 
 ## Setup
 
@@ -35,14 +38,9 @@ node node_modules/electron/install.js
 - **`ANTHROPIC_API_KEY`** — for the build agent. (If you're signed into the `claude`
   CLI, the Agent SDK can use that login instead; the key is optional.)
 - **`FIREFLIES_API_KEY`** — Fireflies dashboard → Settings → Developer Settings → API Key.
-- **Microsoft Graph** — register an app in the [Azure portal](https://portal.azure.com):
-  - Azure Active Directory → App registrations → New registration.
-  - Supported account types: your org (or "any org" for `MS_TENANT_ID=common`).
-  - Authentication → Add a platform → **Mobile and desktop** → enable
-    "Allow public client flows" (this app uses device-code login, no client secret).
-  - API permissions → Microsoft Graph → **Delegated** → `Calendars.Read` → grant.
-  - Copy the **Application (client) ID** → `MS_CLIENT_ID`; set `MS_TENANT_ID` to your
-    tenant ID (or leave `common`).
+
+That's the only credential you need — the bot uses Fireflies both to detect live
+meetings and to read their transcripts. No calendar/Microsoft setup required.
 
 ### 3. Fireflies must be recording your meetings
 
@@ -56,8 +54,7 @@ menu-bar toggle controls whether *this bot builds*, not whether Fireflies record
 npm run app        # build + launch the menu-bar app
 ```
 
-On first run it shows a Microsoft device-code prompt (a URL + code) to connect your
-calendar. After that the login is cached in `.tokens/` and refreshes automatically.
+It runs in the background watching Fireflies for live meetings.
 
 Menu-bar controls: **Listening enabled** (master switch), **Skip current meeting(s)**,
 **Open output folder**, **Quit**.
@@ -79,16 +76,18 @@ Output lands in `builds/<date>-<slug>/` (a prototype plus `SPEC.md`).
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm run orchestrator     # run the calendar loop headless (no menu bar), for debugging
+npm run orchestrator     # run the Fireflies watch loop headless (no menu bar), for debugging
 ```
 
 ## Notes & caveats
 
-- **Fireflies API shape varies by plan.** The live "active meetings" query
-  (`getActiveMeetings`) and the `is_live` field aren't available on every account. If
-  they're missing, calendar-triggered live building won't match meetings — the offline
-  replay path still works, and the orchestrator logs a clear warning. Verify against your
-  account with `npm run orchestrator`.
+- **`active_meetings` requires a Fireflies plan that exposes it.** The bot triggers on
+  Fireflies' `active_meetings` query. If your plan/API doesn't return live meetings, the
+  orchestrator logs the error and the offline replay path still works. Verify against your
+  account with `npm run orchestrator` while a meeting is live.
+- **The `is_live` transcript field is optional.** The bot doesn't depend on it — a meeting
+  is treated as live for as long as it appears in `active_meetings`, and the final
+  consolidation pass runs once it drops off.
 - **Autonomy & safety.** The build agent runs with permissions bypassed but is scoped to
   the per-meeting workspace (`builds/<meeting>/`) via its working directory and a fixed
   tool allowlist (Read/Write/Edit/Bash/Glob/Grep). It won't touch anything outside that
