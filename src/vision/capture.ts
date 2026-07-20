@@ -129,7 +129,7 @@ async function main(): Promise<void> {
   let ok = 0;
   for (const f of targets) {
     const at = f.at as number;
-    const out = path.join(media, `frame-${fmtClock(at).replace(/:/g, "")}-${slug(f.note)}.png`);
+    const out = path.join(media, `frame-${String(Math.floor(at)).padStart(4, "0")}s-${slug(f.note)}.png`);
     const got = await extractFrame(videoPath, at, out);
     if (got) {
       f.framePath = out;
