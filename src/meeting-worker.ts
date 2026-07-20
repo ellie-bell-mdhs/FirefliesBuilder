@@ -69,8 +69,6 @@ every ~40 seconds. So:
 - After you finish a build pass, **re-read \`TRANSCRIPT.md\`** to pick up anything new.
   (If you've caught up and want to wait for more, just say so — the human can nudge
   you with "keep going" once there's more to act on.)
-- The last line of \`TRANSCRIPT.md\` tells you whether the meeting is still live or has
-  ended. When it says the meeting has ENDED, do a final consolidation pass.
 
 ## How to build
 
@@ -80,24 +78,27 @@ every ~40 seconds. So:
   transcript is just partial or exploratory chatter, note it in \`SPEC.md\` and wait.
 - Prefer APPEND/REFINE over rewrite. Don't restart prior work because a later sentence
   rephrased something — evolve it.
-- Everything you produce mid-meeting is a DRAFT. Keep files small, runnable, and
-  organized (group a prototype under its own subfolder).
+- Everything you produce is a DRAFT until the human says otherwise. Keep files small,
+  runnable, and organized (group a prototype under its own subfolder).
 - Don't invent scope that wasn't discussed.
 
-## Final pass (once the meeting has ENDED)
+## You are in charge together with the human
 
-Review everything against the complete transcript: reconcile drafts, remove dead ends
-that were explicitly dropped, make prototypes runnable, and finalize \`SPEC.md\` with a
-clear summary of what was requested and what you built.
+This is a normal, open-ended Claude Code session. **Nothing external will tell you the
+meeting is over or ask you to wrap up** — the human drives that entirely. Keep working,
+waiting, or refining based on the transcript and what they tell you. If the transcript
+stops growing, just wait for it (or for the human) rather than assuming you're done.
 `;
 
-/** Rewrite TRANSCRIPT.md with everything captured so far, plus a live/ended footer. */
+/**
+ * Rewrite TRANSCRIPT.md with everything captured so far. The footer is deliberately
+ * neutral and never signals that the meeting ended — the end of a meeting must have no
+ * effect on the Claude session; the human controls when it wraps up.
+ */
 function writeTranscript(workspace: string, snapshot: TranscriptSnapshot): void {
   const header = `# Transcript — ${snapshot.title || "meeting"}\n`;
   const body = renderSentences(snapshot.sentences) || "(no transcript captured yet)";
-  const footer = snapshot.isLive
-    ? `\n\n---\n_Meeting IN PROGRESS — this file will keep growing. Re-read it for new content._`
-    : `\n\n---\n**MEETING ENDED.** This is the complete transcript. Do your final consolidation pass.`;
+  const footer = `\n\n---\n_This file is updated as new transcript arrives. Re-read it for new content._`;
   fs.writeFileSync(path.join(workspace, "TRANSCRIPT.md"), header + "\n" + body + footer + "\n");
 }
 
@@ -109,8 +110,9 @@ const KICKOFF_PROMPT =
 /**
  * Drive one meeting: set up its workspace, open a Ghostty window running an
  * interactive Claude Code session in it, then keep TRANSCRIPT.md up to date as the
- * meeting grows. Marks the transcript ENDED once the meeting stops being live so the
- * session can do its final consolidation pass.
+ * meeting grows. When the meeting stops being live the watcher simply stops updating
+ * the file and exits — it never signals the Claude session, which keeps running under
+ * the user's control. The end of a meeting has no effect on the agent.
  */
 export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
   const pollMs = opts.pollMs ?? config.transcriptPollMs;
@@ -141,16 +143,18 @@ export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
 
   while (true) {
     if (!snapshot.isLive) {
-      // Ensure the ENDED marker is written, then hand off to the session's final pass.
+      // Meeting is over. Write the last snapshot and stop polling — but leave the
+      // Claude session completely alone. The end of a meeting has no effect on it.
       writeTranscript(workspace, snapshot);
-      log.info(`meeting ended — transcript finalized in ${workspace}`);
+      log.info(`meeting over — watcher stopping; Claude session left running in ${workspace}`);
       return workspace;
     }
 
     await sleep(pollMs);
     if (shouldStop()) {
-      log.warn("stop requested — marking transcript ended and aborting worker");
-      writeTranscript(workspace, { ...snapshot, isLive: false });
+      // The user paused/skipped the watcher. This only stops transcript updates; it
+      // does not touch the running Claude session.
+      log.warn("stop requested — watcher stopping; Claude session left running");
       return workspace;
     }
     snapshot = await opts.source.snapshot();

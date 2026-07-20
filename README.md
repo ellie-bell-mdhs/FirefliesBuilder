@@ -16,19 +16,21 @@ your effective "meeting starting" signal — no calendar integration needed.)
 LaunchAgent (auto-start at login) → headless watcher, invisible while idle
   └─ watcher: polls Fireflies every ~30s for meetings that are live. When one
        appears it shows the menu bar and starts a worker, which
-     └─ creates builds/<date>-<meeting>/, writes BUILDBOT.md + TRANSCRIPT.md, and
-        opens a Ghostty window running `claude` (Opus 4.8) in that folder
+     └─ creates <builds-dir>/<date>-<meeting>/, writes BUILDBOT.md + TRANSCRIPT.md,
+        and opens a Ghostty window running `claude` (Opus 4.8) in that folder
           └─ the watcher keeps TRANSCRIPT.md up to date every ~40s while the meeting
-             runs; Claude Code builds code + SPEC.md from it, re-reading as it grows,
-             and does a final consolidation pass once TRANSCRIPT.md is marked ENDED.
+             runs; Claude Code builds code + SPEC.md from it, re-reading as it grows.
+             When the meeting ends the watcher just stops updating the file — the
+             Claude session is untouched and keeps running.
 ```
 
 The menu bar appears only while a meeting is live or a build is running, and disappears
 when idle. The Claude session runs on your **local Claude Code login** (your `claude`
 subscription) — no API key. `get_transcript` returns everything captured since the meeting
-began, so no content is lost. Everything built during a meeting is a **draft**; the final
-pass reconciles it against the full transcript. Because the session is a real terminal
-window, you can watch it and steer it (e.g. type "keep going") at any time.
+began, so no content is lost. **The meeting ending has no effect on the session** — nothing
+tells it to wrap up or stop; that's entirely in your hands. Because it's a real terminal
+window, you watch and steer it (e.g. "keep going", or ask for a cleanup pass when *you* want
+one) at any time.
 
 ## Setup
 
@@ -115,8 +117,9 @@ npm run orchestrator     # run the calendar watcher headless (no menu bar), for 
   return live meetings, the watcher logs the error and the offline replay path still works.
   Verify with `npm run orchestrator` while a meeting is live.
 - **The `is_live` transcript field is optional.** The bot doesn't depend on it — a meeting
-  is treated as live for as long as it appears in `active_meetings`, and the final
-  consolidation pass runs once it drops off.
+  is treated as live for as long as it appears in `active_meetings`. Once it drops off, the
+  watcher simply stops updating `TRANSCRIPT.md`; it never signals the Claude session or
+  triggers a wrap-up. Whether/when to consolidate is your call, made in the session.
 - **Autonomy & safety.** Each meeting opens an ordinary interactive Claude Code session in
   its own folder (`/Users/ebell/Projects/<date>-<meeting>/`). It behaves like any `claude`
   session you'd start there — your normal permission settings apply, and because it's a
