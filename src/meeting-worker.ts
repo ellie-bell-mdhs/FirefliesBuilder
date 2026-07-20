@@ -63,6 +63,9 @@ export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
 
   let processed = 0; // number of sentences already handed to the agent
   let snapshot = first;
+  let emptyPolls = 0;
+  const IDLE_WARN_AFTER = 5; // ~poll interval * 5 with no transcript at all
+  let warnedIdle = false;
 
   while (true) {
     if (shouldStop()) {
@@ -72,6 +75,20 @@ export async function runMeetingWorker(opts: WorkerOptions): Promise<string> {
 
     const all = snapshot.sentences;
     const fresh = all.slice(processed);
+
+    // If the meeting is "live" but no transcript is arriving, Fireflies probably
+    // isn't recording it — warn once so the cause is obvious.
+    if (snapshot.isLive && all.length === 0) {
+      if (++emptyPolls === IDLE_WARN_AFTER && !warnedIdle) {
+        warnedIdle = true;
+        log.warn(
+          "matched a live meeting but no transcript after several polls — " +
+            "is the Fireflies notetaker actually recording this call?",
+        );
+      }
+    } else {
+      emptyPolls = 0;
+    }
 
     if (fresh.length > 0) {
       log.info(`+${fresh.length} new sentence(s) (total ${all.length}) — build pass`);
