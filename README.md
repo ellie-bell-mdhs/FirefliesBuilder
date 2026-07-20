@@ -27,7 +27,7 @@ LaunchAgent (auto-start at login) → headless watcher, invisible while idle
           ├─ workers: long-lived `claude` processes, one per slice of work, each in
           │   its own folder with its own memory. They build in parallel, message
           │   each other and the orchestrator, and stay alive across tasks.
-          └─ the watcher keeps TRANSCRIPT.md fresh every ~40s. When the meeting ends
+          └─ the watcher keeps TRANSCRIPT.md fresh every ~10s. When the meeting ends
               it marks it ENDED — which only tells the orchestrator to write SUMMARY.md
               and keep coordinating. Nothing is ever told to stop.
 ```
@@ -100,8 +100,9 @@ END:   wait for Fireflies video -> download -> ffmpeg frame @252s
 - macOS **Screen Recording** permission for the terminal (Ghostty) that runs `screencapture`,
   or the live shot silently produces nothing.
 
-Caveats: the live Mac screenshot lags the spoken words by up to one transcript poll (~40s) and
-only sees *your* display; the post-meeting Fireflies frame is the exact, authoritative one.
+Caveats: the live Mac screenshot lags the spoken words by up to one transcript poll (~10s by
+default; raise `TRANSCRIPT_POLL_SECONDS` if you hit Fireflies rate limits) and only sees *your*
+display; the post-meeting Fireflies frame is the exact, authoritative one.
 
 ## Setup
 

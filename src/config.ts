@@ -25,7 +25,10 @@ export const config = {
   },
 
   buildModel: optional("BUILD_MODEL", "claude-opus-4-8"),
-  transcriptPollMs: Number(optional("TRANSCRIPT_POLL_SECONDS", "40")) * 1000,
+  // Default 10s (not 40s) so the orchestrator sees new transcript quickly and can flag
+  // visual moments close to real time — that keeps the live Mac screenshots timely.
+  // Faster polling = more Fireflies API calls; raise it if you hit rate limits.
+  transcriptPollMs: Number(optional("TRANSCRIPT_POLL_SECONDS", "10")) * 1000,
   // How often the watcher checks Fireflies for meetings that just went live.
   activePollMs: Number(optional("ACTIVE_POLL_SECONDS", "30")) * 1000,
 

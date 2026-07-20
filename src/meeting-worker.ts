@@ -127,8 +127,9 @@ going — to know where everything stands and to integrate the pieces.
 ## How to run the meeting
 
 1. Read \`TRANSCRIPT.md\` to understand what's being asked. Every line is prefixed with its
-   timestamp, e.g. \`[04:12] Erik: ...\`. Re-read it every so often for new content (a
-   watcher updates it ~every 40s) and to notice when the meeting ends.
+   timestamp, e.g. \`[04:12] Erik: ...\`. Re-read it **frequently** (a watcher refreshes it
+   ~every 10s) so you catch new content — and flag visual moments (below) — quickly, and
+   so you notice when the meeting ends.
 2. Decompose the work into cohesive parts and spin up a worker per part with a clear
    role. Reuse existing workers for follow-on work rather than always spawning new ones.
 3. Delegate concrete tasks. Let workers coordinate directly with each other when their
