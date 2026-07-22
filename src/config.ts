@@ -1,4 +1,5 @@
 import "dotenv/config";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,7 +37,7 @@ export const config = {
 
   // Where per-meeting folders are created. Each meeting gets its own
   // <buildsDir>/<date>-<slug>/ that the Ghostty/Claude session works inside.
-  buildsDir: optional("BUILDS_DIR", "/Users/ebell/Projects"),
+  buildsDir: optional("BUILDS_DIR", path.join(os.homedir(), "Projects")),
 
   vision: {
     // Master switch for the post-meeting video frame extraction step.

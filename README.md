@@ -128,7 +128,7 @@ That's the only credential. The Claude Code session that each meeting opens runs
 **local Claude Code login** (your `claude` subscription, on Opus 4.8), not the paid API — no
 `ANTHROPIC_API_KEY` needed. No calendar/Microsoft setup.
 
-Meeting folders are created in **`/Users/ebell/Projects/`** by default (`<date>-<meeting>/`);
+Meeting folders are created in **`~/Projects/`** by default (`<date>-<meeting>/`);
 override with `BUILDS_DIR` in `.env`.
 
 ### 3. Fireflies must be recording your meetings
@@ -167,7 +167,7 @@ The app is always in your menu bar (🎙️). When you're in a meeting, open its
 - **Stop looking** — shown while watching; cancels the wait.
 - **Skip / stop current meeting(s)** — shown while building (🛠️); stops the build(s) in
   progress.
-- **Open output folder** — jump to the meeting folders (`/Users/ebell/Projects/`).
+- **Open output folder** — jump to the meeting folders (`~/Projects/`).
 - **Quit** — shut down the menu-bar app (same as toggling it off in applicationManager).
 
 Nothing runs until you press Start — there's no background polling. Logs stream to
@@ -185,7 +185,7 @@ npm run replay -- --id <firefliesTranscriptId>             # a real past meeting
 npm run replay                                             # your most recent meeting
 ```
 
-The meeting folder lands in `/Users/ebell/Projects/<date>-<slug>/` (or `BUILDS_DIR`). To
+The meeting folder lands in `~/Projects/<date>-<slug>/` (or `BUILDS_DIR`). To
 test the pipeline **without** opening a window or starting a real Claude session, set
 `BUILDBOT_NO_LAUNCH=1` — it writes the files and logs what it *would* have launched.
 

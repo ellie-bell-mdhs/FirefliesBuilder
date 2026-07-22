@@ -256,8 +256,8 @@ meeting folder with a `#!/bin/sh` shebang and `chmod 0o755`, so the orchestrator
 
 ### 4G. Path & shell defaults — `src/config.ts`, `.env.example`
 
-- `config.buildsDir` defaults to `/Users/ebell/Projects`. Change the default to
-  `path.join(os.homedir(), "Projects")` (or require the user to set `BUILDS_DIR`).
+- `config.buildsDir` defaults to `path.join(os.homedir(), "Projects")`. On Windows this
+  resolves under the user profile; require the user to set `BUILDS_DIR` if you want elsewhere.
 - Scrub any remaining `/bin/zsh`, `~`-as-literal, or POSIX-only assumptions you meet.
 - Update `.env.example`: a Windows-style `BUILDS_DIR` and a `FFMPEG_PATH` example
   (e.g. `C:\ffmpeg\bin\ffmpeg.exe`).
